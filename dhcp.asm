@@ -2,12 +2,11 @@
 ; States: 0 idle, 1 selecting, 2 requesting, 3 bound, 4 NAK.
 ; All IPv4 addresses stored as network-order bytes.
 dhcp_discover:
- ; FIX: Avoid restarting the DHCP exchange on repeated D keystrokes.
- ; A real lease retry scheduler is still TODO (see audit/issues).
+ ; FIX: D retries SELECTING/REQUESTING without resetting the exchange.
  cmp byte [dhcp_state],1
- je .end
+ je .retry_discover
  cmp byte [dhcp_state],2
- je .end
+ je .retry_request
  cmp byte [net_present],1
  jne .end
  mov byte [dhcp_state],1
@@ -20,6 +19,16 @@ dhcp_discover:
  mov byte [gateway_known],0
  mov byte [dhcp_message_type],1
  inc dword [dhcp_discover_tx]
+ call dhcp_send
+ jmp .end
+.retry_discover:
+ inc dword [dhcp_discover_tx]
+ mov byte [dhcp_message_type],1
+ call dhcp_send
+ jmp .end
+.retry_request:
+ inc dword [dhcp_request_tx]
+ mov byte [dhcp_message_type],3
  call dhcp_send
 .end:
  ret
@@ -79,6 +88,22 @@ dhcp_send:
  mov [edi+2],eax
  add edi,6
 .common:
+ ; FIX: Include RFC 2132 client identifier and maximum DHCP message size.
+ mov byte [edi],61
+ mov byte [edi+1],7
+ mov byte [edi+2],1
+ push esi
+ push ecx
+ lea esi,[net_mac]
+ add edi,3
+ mov ecx,6
+ rep movsb
+ pop ecx
+ pop esi
+ mov byte [edi],57
+ mov byte [edi+1],2
+ mov word [edi+2],05DCh
+ add edi,4
  mov byte [edi],55
  mov byte [edi+1],5
  mov byte [edi+2],1 ; subnet
@@ -258,6 +283,9 @@ udp_receive:
  mov esi,edi
  jmp .scan
 .parsed:
+ ; FIX: A DHCP message type is mandatory.
+ test dl,dl
+ jz .bad
  cmp dl,2
  jne .ack
  cmp byte [dhcp_state],1
@@ -294,6 +322,8 @@ udp_receive:
  inc dword [dhcp_nak_rx]
  mov byte [dhcp_state],4
  mov dword [local_ip],0
+ mov dword [gateway_ip],0
+ mov byte [gateway_known],0
  jmp .done
 .wrong_port:
  inc dword [dhcp_wrong_port]
