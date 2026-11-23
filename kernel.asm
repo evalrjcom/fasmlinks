@@ -109,10 +109,16 @@ diagnostics:
  call print
  mov eax,[rx_last_src_ip]
  call print_hex32
+ ; FIX 0.6.6: show dotted-decimal after raw little-endian hex
+ mov eax,[rx_last_src_ip]
+ call print_ipv4
  mov esi,diag_dst_ip
  call print
  mov eax,[rx_last_dst_ip]
  call print_hex32
+ ; FIX 0.6.6: show dotted-decimal after raw little-endian hex
+ mov eax,[rx_last_dst_ip]
+ call print_ipv4
  mov esi,diag_port_match
  call print
  mov eax,[dhcp_port_match]
@@ -145,7 +151,71 @@ diagnostics:
  call print
  mov eax,dword [local_ip]
  call print_hex32
+ ; FIX 0.6.6: show dotted-decimal after raw little-endian hex
+ mov eax,[local_ip]
+ call print_ipv4
  jmp main
+; FIX 0.6.6: raw DWORD has octets in memory order (low byte first).
+; Display a space and four decimal octets. EDI points at VGA text memory.
+print_ipv4:
+ pushad
+ mov ebx,eax
+ mov ax,01f20h
+ stosw
+ mov ecx,4
+.next:
+ movzx eax,bl
+ call print_dec_octet
+ shr ebx,8
+ dec ecx
+ jz .done
+ mov ax,01f2eh
+ stosw
+ jmp .next
+.done:
+ popad
+ ret
+
+; FIX: print decimal octet 0..255 without leading zeroes.
+print_dec_octet:
+ push ebx
+ push ecx
+ push edx
+ xor edx,edx
+ mov ecx,100
+ div ecx
+ mov ebx,eax
+ mov eax,edx
+ xor edx,edx
+ mov ecx,10
+ div ecx
+ push edx
+ push eax
+ test ebx,ebx
+ jz .tens
+ mov al,bl
+ add al,'0'
+ mov ah,01fh
+ stosw
+.tens:
+ pop eax
+ test ebx,ebx
+ jnz .write_tens
+ test eax,eax
+ jz .units
+.write_tens:
+ add al,'0'
+ mov ah,01fh
+ stosw
+.units:
+ pop eax
+ add al,'0'
+ mov ah,01fh
+ stosw
+ pop edx
+ pop ecx
+ pop ebx
+ ret
 print_hex8:
  push ecx
  mov ecx,2
@@ -206,7 +276,7 @@ print:
  jmp .next
 .done:
  ret
-header db 'FASM TEXTOS 0.6.5 |  32-bit protected mode',0
+header db 'FASM TEXTOS 0.6.6 |  32-bit protected mode',0
 menu db '[1] Home  [2] Text websites  [3] About  [4] Network',0
 footer db '1 Home 2 Sites 3 About 4 Network D DHCP A ARP C TCP T TX R RX',0
 diag_title db 'NE2000 PCI diagnostics',10,0
@@ -253,7 +323,7 @@ tx_text db 'Diagnostic Ethernet frame queued for transmission.',0
 rx_text db 'Receive ring polled. Counters are internal (no HTTP yet).',0
 home_text db 'HOME  |  DuckDuckGo search',10,10,'https://lite.duckduckgo.com/lite/',10,10,'Search is not connected yet.',0
 sites_text db 'TEXT-FRIENDLY WEBSITES',10,10,'https://lite.duckduckgo.com/lite/',10,'https://www.wikipedia.org/',10,'https://www.gutenberg.org/',10,'https://text.npr.org/',10,'https://info.cern.ch/',10,'https://example.com/',0
-about_text db 'FASM TextOS 0.6.5 - RX validation and DHCP trace',10,10,'No DNS, TLS, or reliable general-purpose TCP yet.',0
+about_text db 'FASM TextOS 0.6.6 - RX validation and DHCP trace',10,10,'No DNS, TLS, or reliable general-purpose TCP yet.',0
 
 include 'net.asm'
 include 'ip.asm'
