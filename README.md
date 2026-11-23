@@ -1,4 +1,4 @@
-# FASM Links / TextOS 0.6.5 (experimental)
+# FASM Links / TextOS 0.6.6 (experimental)
 
 This is a 32-bit FASM bootable floppy prototype for the ne2k interface emulated by copy.sh/v86. It has a VGA text console, PCI discovery, NE2000 transmit/receive, ARP, and an incomplete DHCP/IPv4/TCP prototype.
 
@@ -6,7 +6,7 @@ This is a 32-bit FASM bootable floppy prototype for the ne2k interface emulated 
 
 Install FASM (1.73.35 known to compile this source) and run `sh build.sh` from this folder. `textos.img` is a 1.44 MB raw floppy disk image; select it as the floppy in https://copy.sh/v86/, using the **ne2k** network adapter.
 
-## Changes in 0.6.5
+## Changes in 0.6.6
 
 * `ip.asm`: `; FIX` comments mark checks for truncated packets, IPv4 total length, UDP length, invalid headers, fragmentation, and checksum validation. Reject IPv4 options rather than parsing them as a fixed 20-byte header.
 * `dhcp.asm`: `; FIX` comments mark DHCP source-MAC loopback rejection, BOOTP hardware-address validation, and DHCP receive checks; manual D-key retransmission is available in the latest repair, but a real retry/lease timer is still needed.
@@ -26,3 +26,7 @@ Run `sh build.sh` and `python3 test_image.py`; verify the image boots and the NI
 ## GitHub Actions IMG download
 
 The `Build bootable TextOS IMG` workflow runs on branch pushes, pull requests, and manual dispatch. Open the latest successful workflow run and download the `fasmlinks-textos-img` artifact ZIP; extract `textos.img` and load it as a floppy in copy.sh/v86. This artifact is an experimental build, not a verified DHCP lease implementation.
+
+## 0.6.6 patch integration
+
+The 0.6.6 kernel displays raw little-endian hexadecimal IPv4 values followed by dotted-decimal addresses for the last source IP, last destination IP, and configured local IP. The preceding DHCP repair is retained (manual `D` retries, DHCP client identifier, maximum-message-size option, NAK cleanup). This is not proof of DHCP success: automatic retry scheduling, lease renewal and live Relay/WISP verification remain open.
