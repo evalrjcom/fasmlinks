@@ -1,0 +1,260 @@
+format binary
+use32
+org 0x10000
+start:
+ mov edi,0xb8000
+ mov ecx,80*25
+ mov ax,0x1f20
+ rep stosw
+ mov esi,header
+ mov edi,0xb8000
+ call print
+ mov esi,menu
+ mov edi,0xb8000+160*2
+ call print
+ call net_probe
+ mov esi,footer
+ mov edi,0xb8000+160*24
+ call print
+main:
+ cmp byte [net_present],1
+ jne .keyboard
+ call ne_poll
+.keyboard:
+ in al,0x64
+ test al,1
+ jz main
+ in al,0x60
+ cmp al,0x02
+ je home
+ cmp al,0x03
+ je sites
+ cmp al,0x04
+ je about
+ cmp al,0x05
+ je network
+ cmp al,0x14
+ je tx_test
+ cmp al,0x13
+ je rx_test
+ cmp al,0x1e
+ je arp_test
+ cmp al,0x2e
+ je syn_test
+ cmp al,0x20
+ je dhcp_test
+ jmp main
+home:
+ mov esi,home_text
+ jmp show
+sites:
+ mov esi,sites_text
+ jmp show
+tx_test:
+ cmp word [net_port],0
+ je network
+ call ne_send
+ jmp diagnostics
+rx_test:
+ cmp byte [net_present],1
+ jne diagnostics
+ call ne_poll
+ jmp diagnostics
+arp_test:
+ call arp_gateway
+ jmp diagnostics
+dhcp_test:
+ call dhcp_discover
+ jmp diagnostics
+syn_test:
+ call tcp_syn_probe
+ jmp diagnostics
+network:
+ jmp diagnostics
+diagnostics:
+ mov edi,0xb8000+160*4
+ mov ecx,80*19
+ mov ax,0x1f20
+ rep stosw
+ mov edi,0xb8000+160*4
+ mov esi,diag_title
+ call print
+ mov esi,[net_message]
+ call print
+ mov esi,dhcp_label_tx
+ call print
+ mov eax,[dhcp_discover_tx]
+ call print_hex32
+ mov esi,dhcp_label_ipseen
+ call print
+ mov eax,[ipv4_seen]
+ call print_hex32
+ mov esi,dhcp_label_udp
+ call print
+ mov eax,[dhcp_udp_seen]
+ call print_hex32
+ mov esi,diag_udp_src
+ call print
+ mov eax,[udp_last_src]
+ call print_hex32
+ mov esi,diag_udp_dst
+ call print
+ mov eax,[udp_last_dst]
+ call print_hex32
+ mov esi,diag_echo
+ call print
+ mov eax,[dhcp_own_frames]
+ call print_hex32
+ mov esi,diag_src_ip
+ call print
+ mov eax,[rx_last_src_ip]
+ call print_hex32
+ mov esi,diag_dst_ip
+ call print
+ mov eax,[rx_last_dst_ip]
+ call print_hex32
+ mov esi,diag_port_match
+ call print
+ mov eax,[dhcp_port_match]
+ call print_hex32
+ mov esi,diag_wrong_xid
+ call print
+ mov eax,[dhcp_wrong_xid]
+ call print_hex32
+ mov esi,dhcp_label_offer
+ call print
+ mov eax,[dhcp_offer_rx]
+ call print_hex32
+ mov esi,dhcp_label_req
+ call print
+ mov eax,[dhcp_request_tx]
+ call print_hex32
+ mov esi,dhcp_label_ack
+ call print
+ mov eax,[dhcp_ack_rx]
+ call print_hex32
+ mov esi,dhcp_label_bad
+ call print
+ mov eax,[dhcp_rejected]
+ call print_hex32
+ mov esi,diag_dhcp
+ call print
+ movzx eax,byte [dhcp_state]
+ call print_hex32
+ mov esi,diag_local
+ call print
+ mov eax,dword [local_ip]
+ call print_hex32
+ jmp main
+print_hex8:
+ push ecx
+ mov ecx,2
+ shl eax,24
+ jmp print_hex_common
+print_hex32:
+ push ecx
+ mov ecx,8
+print_hex_common:
+ push ebx
+ mov ebx,eax
+.hex:
+ rol ebx,4
+ mov al,bl
+ and al,15
+ cmp al,9
+ jbe .digit
+ add al,7
+.digit:
+ add al,48
+ mov ah,0x1f
+ stosw
+ loop .hex
+ pop ebx
+ pop ecx
+ ret
+about:
+ mov esi,about_text
+show:
+ mov edi,0xb8000+160*4
+ mov ecx,80*19
+ mov ax,0x1f20
+ rep stosw
+ mov edi,0xb8000+160*4
+ call print
+ jmp main
+; 0x0a starts a new VGA row
+print:
+ mov ah,0x1f
+.next:
+ lodsb
+ test al,al
+ jz .done
+ cmp al,10
+ jne .char
+ mov eax,edi
+ sub eax,0xb8000
+ xor edx,edx
+ mov ecx,160
+ div ecx
+ inc eax
+ imul eax,160
+ lea edi,[eax+0xb8000]
+ mov ah,0x1f
+ jmp .next
+.char:
+ stosw
+ jmp .next
+.done:
+ ret
+header db 'FASM TEXTOS 0.6.5 |  32-bit protected mode',0
+menu db '[1] Home  [2] Text websites  [3] About  [4] Network',0
+footer db '1 Home 2 Sites 3 About 4 Network D DHCP A ARP C TCP T TX R RX',0
+diag_title db 'NE2000 PCI diagnostics',10,0
+diag_tx db 10,'TX attempted: 0x',0
+diag_rx db 10,'RX frames:    0x',0
+diag_err db 10,'RX errors:    0x',0
+diag_curr db 10,'CURR:         0x',0
+diag_bnry db 10,'RX page:      0x',0
+diag_status db 10,'Last status:  0x',0
+diag_length db 10,'Last length:  0x',0
+diag_type db 10,'EtherType:    0x',0
+diag_arp_tx db 10,'ARP TX req:    0x',0
+diag_arp_rx db 10,'ARP RX total:  0x',0
+diag_arp_req db 10,'ARP RX req:    0x',0
+diag_arp_rep db 10,'ARP RX reply:  0x',0
+diag_gateway db 10,'Gateway known: 0x',0
+diag_gateway_mac db 10,'Gateway MAC:   ',0
+diag_ip db 10,'IPv4 packets: 0x',0
+diag_icmp db 10,'ICMP replies: 0x',0
+diag_udp_src db 10,'UDP source port: 0x',0
+diag_udp_dst db 10,'UDP dest port:   0x',0
+diag_port_match db 10,'DHCP port match: 0x',0
+diag_echo db 10,'Loopback MAC:  0x',0
+diag_src_ip db 10,'Last source IP:0x',0
+diag_dst_ip db 10,'Last dest IP:  0x',0
+diag_wrong_xid db 10,'DHCP wrong XID:  0x',0
+dhcp_label_tx db 10,'DISCOVER TX:   0x',0
+dhcp_label_ipseen db 10,'IPv4 seen:     0x',0
+dhcp_label_udp db 10,'UDP handler:   0x',0
+dhcp_label_offer db 10,'OFFER RX:      0x',0
+dhcp_label_req db 10,'REQUEST TX:    0x',0
+dhcp_label_ack db 10,'ACK RX:        0x',0
+dhcp_label_nak db 10,'NAK RX:        0x',0
+dhcp_label_bad db 10,'DHCP rejected: 0x',0
+dhcp_label_router db 10,'Gateway IP:    0x',0
+dhcp_label_dns db 10,'DNS IP:        0x',0
+diag_dhcp db 10,'DHCP state:    0x',0
+diag_local db 10,'Local IP raw:  0x',0
+diag_tcpstate db 10,'TCP state:     0x',0
+diag_http db 10,'HTTP bytes:    0x',0
+diag_syn db 10,'TCP SYN sent: 0x',0
+diag_tcp db 10,'TCP RX:       0x',0
+tx_text db 'Diagnostic Ethernet frame queued for transmission.',0
+rx_text db 'Receive ring polled. Counters are internal (no HTTP yet).',0
+home_text db 'HOME  |  DuckDuckGo search',10,10,'https://lite.duckduckgo.com/lite/',10,10,'Search is not connected yet.',0
+sites_text db 'TEXT-FRIENDLY WEBSITES',10,10,'https://lite.duckduckgo.com/lite/',10,'https://www.wikipedia.org/',10,'https://www.gutenberg.org/',10,'https://text.npr.org/',10,'https://info.cern.ch/',10,'https://example.com/',0
+about_text db 'FASM TextOS 0.6.5 - RX validation and DHCP trace',10,10,'No DNS, TLS, or reliable general-purpose TCP yet.',0
+
+include 'net.asm'
+include 'ip.asm'
+include 'dhcp.asm'
