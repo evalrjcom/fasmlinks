@@ -1,0 +1,26 @@
+name: Assemble and verify floppy image
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install FASM assembler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fasm
+      - name: Build boot sector, kernel, floppy image
+        run: sh build.sh
+      - name: Verify image structure
+        run: python3 test_image.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fasmlinks-textos-floppy
+          path: textos.img
+          if-no-files-found: error
