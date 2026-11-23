@@ -1,4 +1,4 @@
-name: Assemble and verify floppy image
+name: Build bootable TextOS IMG
 on:
   push:
   pull_request:
@@ -6,21 +6,25 @@ on:
 permissions:
   contents: read
 jobs:
-  build:
+  floppy:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Install FASM assembler
+      - name: Install Flat Assembler
         run: |
           sudo apt-get update
           sudo apt-get install -y fasm
-      - name: Build boot sector, kernel, floppy image
+      - name: Assemble 32-bit kernel and bootable floppy
         run: sh build.sh
-      - name: Verify image structure
+      - name: Validate image size, boot signature, and kernel
         run: python3 test_image.py
-      - uses: actions/upload-artifact@v4
+      - name: Check disk image size
+        run: test "$(wc -c < textos.img)" -eq 1474560
+      - name: Publish downloadable IMG
+        uses: actions/upload-artifact@v4
         with:
-          name: fasmlinks-textos-floppy
+          name: fasmlinks-textos-img
           path: textos.img
           if-no-files-found: error
+          retention-days: 30
