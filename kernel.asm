@@ -110,14 +110,14 @@ diagnostics:
  mov eax,[rx_last_src_ip]
  call print_hex32
  ; FIX 0.6.6: show dotted-decimal after raw little-endian hex
- mov eax,[rx_last_src_ip]
+ mov eax,dword [rx_last_src_ip]
  call print_ipv4
  mov esi,diag_dst_ip
  call print
  mov eax,[rx_last_dst_ip]
  call print_hex32
  ; FIX 0.6.6: show dotted-decimal after raw little-endian hex
- mov eax,[rx_last_dst_ip]
+ mov eax,dword [rx_last_dst_ip]
  call print_ipv4
  mov esi,diag_port_match
  call print
@@ -152,7 +152,7 @@ diagnostics:
  mov eax,dword [local_ip]
  call print_hex32
  ; FIX 0.6.6: show dotted-decimal after raw little-endian hex
- mov eax,[local_ip]
+ mov eax,dword [local_ip]
  call print_ipv4
  jmp main
 ; FIX 0.6.6: raw DWORD has octets in memory order (low byte first).
