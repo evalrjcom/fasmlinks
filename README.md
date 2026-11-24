@@ -1,4 +1,4 @@
-# FASM Links / TextOS 0.7.9 (experimental)
+# FASM Links / TextOS 0.8.0 (experimental)
 
 This is a 32-bit FASM bootable floppy prototype for the ne2k interface emulated by copy.sh/v86. It has a VGA text console, PCI discovery, NE2000 transmit/receive, ARP, and an incomplete DHCP/IPv4/TCP prototype.
 
@@ -86,3 +86,7 @@ Separate bounded assembly text renderer suppresses style/script content and comm
 ## 0.7.9
 
 Separate 64 KiB freestanding C region at 0x40000; F10 displays ABI probe marker 544C5331. Esc opens a Links-inspired command menu. Existing networking unchanged. BearSSL not linked yet; no TLS handshake, secure entropy or certificate validation. Runtime verification pending.
+
+## 0.8.0
+
+Pinned upstream BearSSL 0.6 archive with SHA-256 verification; freestanding 32-bit SHA-256 and HMAC known-answer tests in the auxiliary binary, plus host self-test in CI. F10 expected 544C5332; BAD00001/2 indicate hash/HMAC failure. This is actual BearSSL cryptographic code, not the complete TLS client engine. No live TLS, trust anchors, secure entropy or HTTPS yet. Existing HTTP unchanged.
