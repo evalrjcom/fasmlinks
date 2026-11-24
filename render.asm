@@ -13,12 +13,13 @@ text_page_down:
  jmp text_view
 text_view:
  mov edi,0xb8000+160*4
- mov ecx,80*20
+ mov ecx,80*20-80
  mov ax,1f20h
  rep stosw
  mov edi,0xb8000+160*4
  mov esi,text_title
  call print
+ mov byte [render_more],0 ; FIX: stale scroll state after empty/partial response.
  mov esi,HTTP_BUFFER
  mov ecx,[http_stored]
  test ecx,ecx
@@ -101,7 +102,7 @@ text_view:
  je .normal_tag
  mov eax,[render_end]
  sub eax,esi
- cmp eax,8
+ cmp eax,7
  jb .finish
  cmp byte [esi],'/'
  jne .loop
@@ -115,17 +116,32 @@ text_view:
  or al,20h
  cmp al,'e'
  jne .loop
- cmp byte [esi+6],'>'
- jne .loop
- jmp .normal_tag
+ lea edx,[esi+6]
+ jmp .raw_delimiter
 .raw_script:
+ mov edx,[render_end]
+ sub edx,esi
+ cmp edx,8
+ jb .finish
  cmp eax,69726373h
  jne .loop
  mov ax,[esi+5]
  or ax,2020h
  cmp ax,7470h
  jne .loop
- cmp byte [esi+7],'>'
+ lea edx,[esi+7]
+.raw_delimiter:
+ ; FIX: closing raw tags may have ASCII whitespace before >.
+ mov al,[edx]
+ cmp al,'>'
+ je .normal_tag
+ cmp al,32
+ je .normal_tag
+ cmp al,9
+ je .normal_tag
+ cmp al,10
+ je .normal_tag
+ cmp al,13
  jne .loop
 .normal_tag:
  ; Comments: consume through -->, including embedded > characters.
@@ -191,6 +207,16 @@ text_view:
  jmp .name_loop
 .name_done:
  mov byte [edi],0
+ ; FIX: custom tags such as style-custom must not be treated as style.
+ mov al,[esi]
+ cmp al,'>'
+ je .valid_delimiter
+ cmp al,'/'
+ je .valid_delimiter
+ cmp al,32
+ jbe .valid_delimiter
+ mov byte [render_tag],0
+.valid_delimiter:
  ; Skip attributes, respecting single/double quotes.
  xor edx,edx
 .attr:

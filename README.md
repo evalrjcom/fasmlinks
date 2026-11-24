@@ -98,3 +98,7 @@ Fix glibc fortified-symbol linkage by using explicit freestanding compiler optio
 ### 0.8.1 build repair
 
 Fix the missing freestanding strlen symbol reported by CI, link the host self-test as non-PIE, verify no undefined guest symbols remain, and require the actual booted floppy to report BearSSL self-test success via QEMU debug port E9 before publishing. QEMU is an offline boot test, not copy.sh/v86 network or live HTTPS verification. Version stays 0.8.1.
+
+### 0.8.1 audit hardening
+
+Fix DNS question case handling and gateway-only routing checks, bound TCP request retransmission to unacknowledged suffixes, reject impossible ACKs and unexpected SYN, verify nonzero DHCP UDP checksum and expire finite leases, repair raw HTML closing-tag boundaries, preserve exact Location header cursor, bound VGA writes and preserve footer during screen clears. Full TCP stream semantics, DHCP renewal, full HTML, TLS transport, secure RNG, trust anchors and verified HTTPS remain pending. See AUDIT.md.

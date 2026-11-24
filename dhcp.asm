@@ -33,6 +33,8 @@ dhcp_discover:
  mov dword [dhcp_dns_ip],0
  mov dword [dhcp_subnet],0 ; FIX: clear previous lease metadata
  mov dword [dhcp_lease_seconds],0
+ mov dword [dhcp_lease_left],0
+ mov byte [dns_state],0
  mov byte [gateway_known],0
  mov byte [tcp_state],0
  mov byte [dhcp_message_type],1
@@ -221,6 +223,32 @@ udp_receive:
  cmp edx,ebx
  ja .bad
  mov ebx,edx ; end of UDP payload (exclusive)
+ ; FIX: verify nonzero IPv4 UDP checksum before accepting lease data.
+ cmp word [net_rx_buffer+40],0
+ je .checksum_ok
+ push ebx
+ mov esi,net_rx_buffer+26
+ mov ecx,8
+ call sum_words
+ mov edx,eax
+ add edx,17
+ movzx ecx,word [net_rx_buffer+38]
+ xchg cl,ch
+ add edx,ecx
+ mov esi,net_rx_buffer+34
+ call sum_words
+ add eax,edx
+ mov edx,eax
+ shr eax,16
+ and edx,0ffffh
+ add eax,edx
+ mov edx,eax
+ shr edx,16
+ add ax,dx
+ pop ebx
+ cmp ax,0ffffh
+ jne .bad
+.checksum_ok:
  cmp byte [net_rx_buffer+42],2
  jne .bad
  cmp byte [net_rx_buffer+43],1
@@ -351,6 +379,11 @@ udp_receive:
  mov ecx,[opt_server]
  cmp ecx,[dhcp_server_ip] ; NEW: validate selected server before committing options
  jne .bad
+ ; FIX: reject zero/missing lease and subnet rather than binding unusable config.
+ cmp dword [opt_lease],0
+ je .bad
+ cmp dword [opt_subnet],0
+ je .bad
  inc dword [dhcp_ack_rx]
  mov dword [local_ip],eax
  mov eax,[opt_subnet]
@@ -359,6 +392,7 @@ udp_receive:
  mov [dhcp_dns_ip],eax
  mov eax,[opt_lease]
  mov [dhcp_lease_seconds],eax
+ mov [dhcp_lease_left],eax
  mov eax,[opt_router]
  mov [dhcp_router_ip],eax
  mov dword [gateway_ip],eax
@@ -447,6 +481,15 @@ dhcp_tick:
  jz .done
  cmp byte [dhcp_state],3
  jne .acquiring
+ ; FIX: expire finite leases instead of keeping stale IP indefinitely.
+ ; Approximate RTC polling; renewal/rebinding before expiry is still TODO.
+ cmp dword [dhcp_lease_left],0ffffffffh
+ je .lease_valid
+ movzx ecx,al
+ cmp ecx,[dhcp_lease_left]
+ jae .lease_expired
+ sub [dhcp_lease_left],ecx
+.lease_valid:
  push eax
  call arp_tick ; keep gateway discovery alive after DHCP ACK
  pop eax
@@ -454,6 +497,10 @@ dhcp_tick:
  call tcp_tick
  pop eax
  call dns_tick
+ jmp .done
+.lease_expired:
+ mov byte [dhcp_state],0
+ call dhcp_discover
  jmp .done
 .acquiring:
  cmp byte [dhcp_state],0
@@ -504,6 +551,7 @@ dhcp_router_ip dd 0
 dhcp_dns_ip dd 0
 dhcp_subnet dd 0
 dhcp_lease_seconds dd 0
+dhcp_lease_left dd 0
 dhcp_udp_len dw 0
 dhcp_ip_len dw 0
 dhcp_discover_tx dd 0

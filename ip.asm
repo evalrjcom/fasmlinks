@@ -350,6 +350,11 @@ tcp_receive:
  inc eax
  mov [tcp_ack_num],eax
  inc dword [tcp_seq_num]
+ mov eax,[tcp_seq_num]
+ mov [tcp_request_seq],eax
+ mov [tcp_snd_una],eax
+ mov byte [tcp_data_retries],0
+ mov byte [tcp_data_elapsed],0
  mov byte [tcp_state],2
  mov byte [tcp_elapsed],0
  mov byte [tcp_flags],10h
@@ -371,12 +376,21 @@ tcp_receive:
  jnz .reset
  test byte [net_rx_buffer+47],10h
  jz .end
- ; Only acknowledge data from a segment with a plausible ACK.
+ ; FIX: reject unexpected SYN and ACK beyond SND.NXT; old ACKs cannot rewind SND.UNA.
+ test byte [net_rx_buffer+47],2
+ jnz .end
  mov eax,dword [net_rx_buffer+42]
  bswap eax
- sub eax,[tcp_seq_num]
- test eax,eax
+ mov edx,eax
+ sub edx,[tcp_seq_num]
  jg .end
+ mov edx,eax
+ sub edx,[tcp_snd_una]
+ jle .ack_unchanged
+ mov [tcp_snd_una],eax
+ mov byte [tcp_data_elapsed],0
+ mov byte [tcp_data_retries],0
+.ack_unchanged:
  mov byte [tcp_elapsed],0
  mov ecx,[tcp_rx_length]
  sub ecx,[tcp_rx_header]
@@ -636,6 +650,7 @@ tcp_send_syn:
 
 ; AL elapsed RTC seconds. Bounded SYN retry and idle timeout.
 tcp_tick:
+ mov [tcp_tick_delta],al
  cmp byte [tcp_state],1
  je .syn
  cmp byte [tcp_state],2
@@ -643,8 +658,23 @@ tcp_tick:
  add al,[tcp_elapsed]
  mov [tcp_elapsed],al
  cmp al,30
+ jae .timeout
+ ; FIX: bounded retries for the outstanding request (not a general TCP send queue).
+ mov eax,[tcp_snd_una]
+ cmp eax,[tcp_seq_num]
+ je .done
+ ; Idle elapsed is an upper bound; independent counter uses caller's elapsed seconds.
+ mov al,[tcp_tick_delta]
+ add al,[tcp_data_elapsed]
+ mov [tcp_data_elapsed],al
+ cmp al,5
  jb .done
- jmp .timeout
+ mov byte [tcp_data_elapsed],0
+ cmp byte [tcp_data_retries],3
+ jae .timeout
+ inc byte [tcp_data_retries]
+ call tcp_retry_request
+ jmp .done
 .syn:
  add al,[tcp_elapsed]
  mov [tcp_elapsed],al
@@ -661,8 +691,29 @@ tcp_tick:
 .done:
  ret
 
+ ; Retransmit only the unacknowledged suffix of the immutable HTTP/DNS request.
+tcp_retry_request:
+ pushad
+ mov eax,[tcp_snd_una]
+ mov edx,eax
+ sub edx,[tcp_request_seq]
+ cmp edx,[http_request_len]
+ jae .done
+ mov ecx,[http_request_len]
+ sub ecx,edx
+ mov esi,[http_request_ptr]
+ add esi,edx
+ push dword [tcp_seq_num]
+ mov [tcp_seq_num],eax
+ mov byte [tcp_flags],18h
+ call tcp_send_segment
+ pop dword [tcp_seq_num]
+.done:
+ popad
+ ret
+
 ; TCP sender: flags tcp_flags; optional payload ESI, length ECX.
-; No retransmission or out-of-order reassembly in this prototype.
+; Bounded single-request retry; no general send queue or out-of-order reassembly.
 tcp_send_segment:
  pushad
  cmp ecx,1460 ; FIX: bounded TCP payload for 1500-byte MTU
@@ -730,12 +781,7 @@ tcp_send_segment:
  mov ecx,20
  add ecx,eax
  sub ecx,20
- ; sum_words only supports even lengths (HTTP GET length padded if odd)
- test ecx,1
- jz .even
- mov byte [esi+ecx],0 ; FIX: pad checksum at actual segment end
- inc ecx
-.even:
+ ; FIX: sum_words already handles odd lengths; no mutation past payload.
  call sum_words
  add edx,eax
  mov eax,edx
@@ -777,6 +823,11 @@ tcp_rx_length dd 0
 tcp_rx_header dd 0
 tcp_elapsed db 0
 tcp_retries db 0
+tcp_tick_delta db 0
+tcp_data_elapsed db 0
+tcp_data_retries db 0
+tcp_request_seq dd 0
+tcp_snd_una dd 0
 
 sum_words:
  ; Handles zero and odd lengths without reading outside the segment.

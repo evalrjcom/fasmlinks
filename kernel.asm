@@ -100,7 +100,7 @@ links_menu:
  jmp show
 tls_info:
  mov edi,0xb8000+160*4
- mov ecx,80*20
+ mov ecx,80*20-80
  mov ax,1f20h
  rep stosw
  mov edi,0xb8000+160*4
@@ -164,7 +164,7 @@ network:
  jmp diagnostics
 diagnostics:
  mov edi,0xb8000+160*4
- mov ecx,80*20 ; FIX: clear through last body row, preserve footer
+ mov ecx,80*20-80 ; FIX: clear through last body row, preserve footer
  mov ax,0x1f20
  rep stosw
  mov edi,0xb8000+160*4
@@ -249,7 +249,7 @@ diagnostics:
 network_detail:
  ; NEW: independent status page fits within the 80x25 screen.
  mov edi,0xb8000+160*4
- mov ecx,80*20
+ mov ecx,80*20-80
  mov ax,0x1f20
  rep stosw
  mov edi,0xb8000+160*4
@@ -327,7 +327,7 @@ network_detail:
  jmp main
 arp_detail:
  mov edi,0xb8000+160*4
- mov ecx,80*20
+ mov ecx,80*20-80
  mov ax,0x1f20
  rep stosw
  mov edi,0xb8000+160*4
@@ -423,7 +423,7 @@ print_mac:
 http_view:
  ; Display bounded, sanitized raw response; never execute received bytes.
  mov edi,0xb8000+160*4
- mov ecx,80*20
+ mov ecx,80*20-80
  mov ax,1f20h
  rep stosw
  mov edi,0xb8000+160*4
@@ -501,7 +501,7 @@ dns_open:
  jmp dns_detail
 dns_detail:
  mov edi,0xb8000+160*4
- mov ecx,80*20
+ mov ecx,80*20-80
  mov ax,1f20h
  rep stosw
  mov edi,0xb8000+160*4
@@ -579,7 +579,7 @@ dns_detail:
 
 http_summary:
  mov edi,0xb8000+160*4
- mov ecx,80*20
+ mov ecx,80*20-80
  mov ax,1f20h
  rep stosw
  mov edi,0xb8000+160*4
@@ -629,13 +629,15 @@ http_summary:
  jne .skip
  cmp byte [esi+8],':'
  jne .skip
+ ; FIX: keep the exact header cursor and remaining length across print.
+ push esi
+ push ecx
  mov edi,0xb8000+160*8
  mov esi,http_location_label
  call print
- ; Rescan from start because print consumes ESI/ECX.
- mov esi,HTTP_BUFFER
- mov ecx,[http_stored]
- jmp .find_location
+ pop ecx
+ pop esi
+ jmp .location
 .skip:
  lodsb
  dec ecx
@@ -644,23 +646,6 @@ http_summary:
  cmp al,10
  jne .skip
  jmp .headers
-.find_location:
- cmp ecx,9
- jb .done
- mov eax,[esi]
- or eax,20202020h
- cmp eax,61636f6ch
- jne .advance
- mov eax,[esi+4]
- or eax,20202020h
- cmp eax,6e6f6974h
- jne .advance
- cmp byte [esi+8],':'
- je .location
-.advance:
- inc esi
- dec ecx
- jmp .find_location
 .location:
  add esi,9
  sub ecx,9
@@ -808,7 +793,7 @@ about:
  mov esi,about_text
 show:
  mov edi,0xb8000+160*4
- mov ecx,80*20 ; FIX: clear through last body row, preserve footer
+ mov ecx,80*20-80 ; FIX: clear through last body row, preserve footer
  mov ax,0x1f20
  rep stosw
  mov edi,0xb8000+160*4
@@ -818,6 +803,9 @@ show:
 print:
  mov ah,0x1f
 .next:
+ ; FIX: stop at VGA text aperture, even on excessively long diagnostic strings.
+ cmp edi,0xb8000+160*25
+ jae .done
  lodsb
  test al,al
  jz .done

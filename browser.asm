@@ -67,7 +67,7 @@ url_key:
  jmp home
 url_draw:
  mov edi,0b8000h+160*4
- mov ecx,80*20
+ mov ecx,80*20-80
  mov ax,1f20h
  rep stosw
  mov edi,0b8000h+160*4
@@ -78,6 +78,9 @@ url_draw:
  jmp main
 
 url_submit:
+ ; FIX: report readiness before subnet-based numeric routing validation.
+ cmp byte [dhcp_state],3
+ jne .not_ready
  ; Parse exactly four decimal octets; no overflow, signs or empty fields.
  mov esi,url_input
  cmp dword [esi],70747468h

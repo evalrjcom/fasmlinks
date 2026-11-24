@@ -238,11 +238,22 @@ dns_parse_message:
  cmp eax,128
  ja .failed
  mov [dns_answer_count],eax
- ; Match exact question (fixed lower-case wire name).
+ ; FIX: DNS names are case-insensitive; compare canonical expanded name.
  add esi,12
+ mov edi,dns_owner_name
+ call dns_expand_name
+ jc .failed
+ lea eax,[esi+4]
+ cmp eax,ebx
+ ja .failed
+ cmp dword [esi],01000100h
+ jne .failed
+ add esi,4
+ push esi
+ mov esi,dns_owner_name
  mov edi,dns_question
- mov ecx,[dns_question_len]
- repe cmpsb
+ call dns_names_equal
+ pop esi
  jne .failed
  inc dword [dns_rx]
  ; Follow only owner-matched CNAME/A records within the answer section.
@@ -309,11 +320,25 @@ dns_parse_message:
  jnz .scan_rr
  jmp .failed
 .found:
+ ; FIX: gateway-only routing cannot reach arbitrary on-link hosts.
+ mov edx,eax
+ xor edx,dword [local_ip]
+ and edx,[dhcp_subnet]
+ jz .failed
  mov [dns_result],eax
  ; Defer new HTTP connection until the DNS TCP ACK has been sent.
  cmp byte [dns_state],4
  jne .open_http
+ ; FIX: release outstanding DNS TCP connection before changing tuple.
+ push eax
+ cmp byte [tcp_state],2
+ jne .dns_closed
+ mov byte [tcp_flags],14h
+ xor ecx,ecx
+ call tcp_send_segment
+.dns_closed:
  mov byte [tcp_state],3
+ pop eax
 .open_http:
  mov word [tcp_remote_port],5000h
  mov dword [remote_ip],eax
