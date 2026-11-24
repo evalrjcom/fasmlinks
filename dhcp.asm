@@ -1,14 +1,29 @@
-; TextOS DHCPv4 client for v86 relay. No clock/lease-renewal scheduler yet.
+; TextOS 0.6.7 DHCPv4 client: automatic acquisition/retries; no lease renewal yet.
 ; States: 0 idle, 1 selecting, 2 requesting, 3 bound, 4 NAK.
 ; All IPv4 addresses stored as network-order bytes.
 dhcp_discover:
  ; FIX: D retries SELECTING/REQUESTING without resetting the exchange.
+ cmp byte [net_present],1
+ jne .end
+ cmp byte [dhcp_state],3 ; NEW: D cannot discard a bound lease
+ je .end
  cmp byte [dhcp_state],1
  je .retry_discover
  cmp byte [dhcp_state],2
  je .retry_request
  cmp byte [net_present],1
  jne .end
+ ; NEW: per-exchange XID; v86 provides RDTSC.
+ rdtsc
+ xor eax,edx
+ xor eax,dword [net_mac]
+ movzx edx,word [net_mac+4]
+ xor eax,edx
+ or eax,1
+ mov [dhcp_xid],eax
+ mov byte [dhcp_retry_interval],4
+ mov byte [dhcp_retry_elapsed],0
+ mov byte [dhcp_request_retries],0
  mov byte [dhcp_state],1
  mov dword [local_ip],0
  mov dword [gateway_ip],0
@@ -25,11 +40,13 @@ dhcp_discover:
  call dhcp_send
  jmp .end
 .retry_discover:
+ mov byte [dhcp_retry_elapsed],0
  inc dword [dhcp_discover_tx]
  mov byte [dhcp_message_type],1
  call dhcp_send
  jmp .end
 .retry_request:
+ mov byte [dhcp_retry_elapsed],0
  inc dword [dhcp_request_tx]
  mov byte [dhcp_message_type],3
  call dhcp_send
@@ -37,6 +54,9 @@ dhcp_discover:
  ret
 
 dhcp_request:
+ mov byte [dhcp_retry_interval],4
+ mov byte [dhcp_retry_elapsed],0
+ mov byte [dhcp_request_retries],0
  mov byte [dhcp_message_type],3
  mov byte [dhcp_state],2
  inc dword [dhcp_request_tx]
@@ -66,7 +86,8 @@ dhcp_send:
  mov byte [tx_frame+42],1
  mov byte [tx_frame+43],1
  mov byte [tx_frame+44],6
- mov dword [tx_frame+46],78563412h ; xid 12345678
+ mov eax,[dhcp_xid]
+ mov dword [tx_frame+46],eax ; NEW: same XID throughout exchange
  mov word [tx_frame+52],0080h ; broadcast flag
  mov esi,net_mac
  mov edi,tx_frame+70
@@ -206,7 +227,8 @@ udp_receive:
  jne .bad
  cmp byte [net_rx_buffer+44],6
  jne .bad
- cmp dword [net_rx_buffer+46],78563412h
+ mov eax,[dhcp_xid]
+ cmp dword [net_rx_buffer+46],eax
  jne .wrong_xid
  ; FIX: BOOTP client hardware address must match our NIC to avoid
  ; accepting DHCP packets intended for another client on the relay.
@@ -219,6 +241,12 @@ udp_receive:
  jne .bad
  mov esi,net_rx_buffer+282
  lea ebx,[net_rx_buffer+ebx]
+ ; NEW: stage options until the complete packet is accepted.
+ mov dword [opt_server],0
+ mov dword [opt_router],0
+ mov dword [opt_dns],0
+ mov dword [opt_subnet],0
+ mov dword [opt_lease],0
  xor edx,edx ; message type in DL
 .scan:
  cmp esi,ebx
@@ -240,6 +268,8 @@ udp_receive:
  jne .server
  cmp ecx,1
  jne .bad
+ test dl,dl ; NEW: reject duplicate message-type options
+ jnz .bad
  mov dl,[esi]
  jmp .next
 .server:
@@ -248,7 +278,7 @@ udp_receive:
  cmp ecx,4
  jne .bad
  mov eax,[esi]
- mov [dhcp_server_ip],eax
+ mov [opt_server],eax
  jmp .next
 .router:
  cmp eax,3
@@ -258,7 +288,7 @@ udp_receive:
  test ecx,3 ; FIX: IPv4 address list length is a multiple of four
  jnz .bad
  mov eax,[esi]
- mov [dhcp_router_ip],eax
+ mov [opt_router],eax
  jmp .next
 .dns:
  cmp eax,6
@@ -268,7 +298,7 @@ udp_receive:
  test ecx,3
  jnz .bad
  mov eax,[esi]
- mov [dhcp_dns_ip],eax
+ mov [opt_dns],eax
  jmp .next
 .subnet:
  cmp eax,1
@@ -276,7 +306,7 @@ udp_receive:
  cmp ecx,4
  jne .bad
  mov eax,[esi]
- mov [dhcp_subnet],eax
+ mov [opt_subnet],eax
  jmp .next
 .lease:
  cmp eax,51
@@ -285,7 +315,7 @@ udp_receive:
  jne .bad
  mov eax,[esi]
  bswap eax
- mov [dhcp_lease_seconds],eax
+ mov [opt_lease],eax
 .next:
  mov esi,edi
  jmp .scan
@@ -297,13 +327,17 @@ udp_receive:
  jne .ack
  cmp byte [dhcp_state],1
  jne .done
- inc dword [dhcp_offer_rx]
  mov eax,dword [net_rx_buffer+58]
+ test eax,eax
+ jz .bad
+ cmp eax,0ffffffffh
+ je .bad
+ cmp dword [opt_server],0
+ je .bad
  mov [dhcp_offered_ip],eax
- cmp eax,0
- je .bad
- cmp dword [dhcp_server_ip],0
- je .bad
+ mov eax,[opt_server]
+ mov [dhcp_server_ip],eax
+ inc dword [dhcp_offer_rx]
  call dhcp_request
  jmp .done
 .ack:
@@ -314,9 +348,19 @@ udp_receive:
  mov eax,dword [net_rx_buffer+58]
  cmp eax,[dhcp_offered_ip]
  jne .bad
+ mov ecx,[opt_server]
+ cmp ecx,[dhcp_server_ip] ; NEW: validate selected server before committing options
+ jne .bad
  inc dword [dhcp_ack_rx]
  mov dword [local_ip],eax
- mov eax,[dhcp_router_ip]
+ mov eax,[opt_subnet]
+ mov [dhcp_subnet],eax
+ mov eax,[opt_dns]
+ mov [dhcp_dns_ip],eax
+ mov eax,[opt_lease]
+ mov [dhcp_lease_seconds],eax
+ mov eax,[opt_router]
+ mov [dhcp_router_ip],eax
  mov dword [gateway_ip],eax
  mov byte [dhcp_state],3
  cmp dword [gateway_ip],0
@@ -328,7 +372,12 @@ udp_receive:
  jne .done
  cmp byte [dhcp_state],2 ; FIX: ignore unsolicited NAK outside REQUESTING
  jne .done
+ mov eax,[opt_server]
+ cmp eax,[dhcp_server_ip]
+ jne .bad
  inc dword [dhcp_nak_rx]
+ mov byte [dhcp_retry_elapsed],0
+ mov byte [dhcp_retry_interval],4
  mov byte [dhcp_state],4
  mov dword [local_ip],0
  mov dword [gateway_ip],0
@@ -345,6 +394,99 @@ udp_receive:
 .done:
  ret
 
+; NEW: RTC seconds polling works with interrupts disabled.
+; Approximate during VM suspension; no lease expiry/renewal yet.
+dhcp_clock_init:
+ pushad
+ call dhcp_rtc_seconds
+ mov [dhcp_clock_last],al
+ popad
+ ret
+
+dhcp_rtc_seconds:
+ mov al,0ah
+ out 70h,al
+ in al,71h
+ test al,80h
+ jnz .invalid
+ mov al,0bh
+ out 70h,al
+ in al,71h
+ mov ah,al
+ xor al,al
+ out 70h,al
+ in al,71h
+ test ah,4
+ jnz .binary
+ mov ah,al
+ and al,0fh
+ shr ah,4
+ aad
+.binary:
+ cmp al,60
+ jae .invalid
+ ret
+.invalid:
+ mov al,0ffh
+ ret
+
+dhcp_tick:
+ pushad
+ call dhcp_rtc_seconds
+ cmp al,60
+ jae .done
+ cmp byte [dhcp_clock_last],60
+ jae .init
+ mov bl,al
+ sub al,[dhcp_clock_last]
+ jnc .elapsed
+ add al,60
+.elapsed:
+ mov [dhcp_clock_last],bl
+ test al,al
+ jz .done
+ cmp byte [dhcp_state],3
+ je .done
+ cmp byte [dhcp_state],0
+ je .done
+ add al,[dhcp_retry_elapsed]
+ cmp al,[dhcp_retry_interval]
+ jae .retry
+ mov [dhcp_retry_elapsed],al
+ jmp .done
+.init:
+ mov [dhcp_clock_last],al
+ jmp .done
+.retry:
+ mov byte [dhcp_retry_elapsed],0
+ cmp byte [dhcp_state],2
+ jne .send
+ inc byte [dhcp_request_retries]
+ cmp byte [dhcp_request_retries],4
+ jb .send
+ ; NEW: abandoned server; restart selection with fresh XID.
+ mov byte [dhcp_state],0
+.send:
+ call dhcp_discover
+ mov al,[dhcp_retry_interval]
+ cmp al,32
+ jae .done
+ shl al,1
+ mov [dhcp_retry_interval],al
+.done:
+ popad
+ ret
+
+dhcp_clock_last db 0ffh
+dhcp_retry_elapsed db 0
+dhcp_retry_interval db 4
+dhcp_request_retries db 0
+dhcp_xid dd 0
+opt_server dd 0
+opt_router dd 0
+opt_dns dd 0
+opt_subnet dd 0
+opt_lease dd 0
 dhcp_state db 0
 dhcp_message_type db 0
 dhcp_offered_ip dd 0

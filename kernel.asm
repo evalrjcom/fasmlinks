@@ -14,6 +14,9 @@ start:
  mov edi,0xb8000+160*2
  call print
  call net_probe
+ ; NEW: start DHCP automatically after NIC initialization.
+ call dhcp_clock_init
+ call dhcp_discover
  mov esi,footer
  mov edi,0xb8000+160*24
  call print
@@ -21,6 +24,7 @@ main:
  cmp byte [net_present],1
  jne .keyboard
  call ne_poll
+ call dhcp_tick ; NEW: nonblocking RTC retry scheduler
 .keyboard:
  in al,0x64
  test al,1
@@ -34,6 +38,8 @@ main:
  je about
  cmp al,0x05
  je network
+ cmp al,0x06
+ je network_detail
  cmp al,0x14
  je tx_test
  cmp al,0x13
@@ -74,7 +80,7 @@ network:
  jmp diagnostics
 diagnostics:
  mov edi,0xb8000+160*4
- mov ecx,80*19
+ mov ecx,80*20 ; FIX: clear through last body row, preserve footer
  mov ax,0x1f20
  rep stosw
  mov edi,0xb8000+160*4
@@ -155,6 +161,81 @@ diagnostics:
  ; FIX 0.6.6: show dotted-decimal after raw little-endian hex
  mov eax,dword [local_ip]
  call print_ipv4
+ jmp main
+network_detail:
+ ; NEW: independent status page fits within the 80x25 screen.
+ mov edi,0xb8000+160*4
+ mov ecx,80*20
+ mov ax,0x1f20
+ rep stosw
+ mov edi,0xb8000+160*4
+ mov esi,detail_title
+ call print
+ mov esi,detail_state
+ call print
+ movzx eax,byte [dhcp_state]
+ call print_hex32
+ mov esi,detail_local
+ call print
+ mov eax,dword [local_ip]
+ call print_ipv4
+ mov esi,detail_mask
+ call print
+ mov eax,[dhcp_subnet]
+ call print_ipv4
+ mov esi,detail_gateway
+ call print
+ mov eax,dword [gateway_ip]
+ call print_ipv4
+ mov esi,detail_dns
+ call print
+ mov eax,[dhcp_dns_ip]
+ call print_ipv4
+ mov esi,detail_server
+ call print
+ mov eax,[dhcp_server_ip]
+ call print_ipv4
+ mov esi,detail_lease
+ call print
+ mov eax,[dhcp_lease_seconds]
+ call print_hex32
+ mov esi,detail_xid
+ call print
+ mov eax,[dhcp_xid]
+ bswap eax
+ call print_hex32
+ mov esi,diag_gateway
+ call print
+ movzx eax,byte [gateway_known]
+ call print_hex32
+ mov esi,diag_arp_tx
+ call print
+ mov eax,[arp_tx_request]
+ call print_hex32
+ mov esi,diag_tcpstate
+ call print
+ movzx eax,byte [tcp_state]
+ call print_hex32
+ mov esi,diag_syn
+ call print
+ mov eax,[tcp_syn_sent]
+ call print_hex32
+ mov esi,diag_tcp
+ call print
+ mov eax,[tcp_packets]
+ call print_hex32
+ mov esi,diag_http
+ call print
+ mov eax,[http_bytes]
+ call print_hex32
+ mov esi,detail_txerr
+ call print
+ mov eax,[net_tx_errors]
+ call print_hex32
+ mov esi,diag_err
+ call print
+ mov eax,[net_rx_errors]
+ call print_hex32
  jmp main
 ; FIX 0.6.6: raw DWORD has octets in memory order (low byte first).
 ; Display a space and four decimal octets. EDI points at VGA text memory.
@@ -247,7 +328,7 @@ about:
  mov esi,about_text
 show:
  mov edi,0xb8000+160*4
- mov ecx,80*19
+ mov ecx,80*20 ; FIX: clear through last body row, preserve footer
  mov ax,0x1f20
  rep stosw
  mov edi,0xb8000+160*4
@@ -277,9 +358,19 @@ print:
  jmp .next
 .done:
  ret
-header db 'FASM TEXTOS 0.6.6 |  32-bit protected mode',0
-menu db '[1] Home  [2] Text websites  [3] About  [4] Network',0
-footer db '1 Home 2 Sites 3 About 4 Network D DHCP A ARP C TCP T TX R RX',0
+header db 'FASM TEXTOS 0.6.7 |  32-bit protected mode',0
+menu db '[1] Home [2] Sites [3] About [4] DHCP trace [5] IP/TCP',0
+footer db '1 Home 2 Sites 3 About 4 Trace 5 IP/TCP D DHCP A ARP C TCP T TX R RX',0
+detail_title db 'IP configuration / TCP diagnostics (press 5 to refresh)',0
+detail_state db 10,'DHCP state (3=BOUND): 0x',0
+detail_local db 10,'Local IP: ',0
+detail_mask db 10,'Subnet: ',0
+detail_gateway db 10,'Gateway: ',0
+detail_dns db 10,'DNS: ',0
+detail_server db 10,'DHCP server: ',0
+detail_lease db 10,'Lease seconds (hex): 0x',0
+detail_xid db 10,'Transaction ID: 0x',0
+detail_txerr db 10,'TX errors: 0x',0
 diag_title db 'NE2000 PCI diagnostics',10,0
 diag_tx db 10,'TX attempted: 0x',0
 diag_rx db 10,'RX frames:    0x',0
@@ -324,7 +415,7 @@ tx_text db 'Diagnostic Ethernet frame queued for transmission.',0
 rx_text db 'Receive ring polled. Counters are internal (no HTTP yet).',0
 home_text db 'HOME  |  DuckDuckGo search',10,10,'https://lite.duckduckgo.com/lite/',10,10,'Search is not connected yet.',0
 sites_text db 'TEXT-FRIENDLY WEBSITES',10,10,'https://lite.duckduckgo.com/lite/',10,'https://www.wikipedia.org/',10,'https://www.gutenberg.org/',10,'https://text.npr.org/',10,'https://info.cern.ch/',10,'https://example.com/',0
-about_text db 'FASM TextOS 0.6.6 - RX validation and DHCP trace',10,10,'No DNS, TLS, or reliable general-purpose TCP yet.',0
+about_text db 'FASM TextOS 0.6.7 - RX validation and DHCP trace',10,10,'No DNS, TLS, or reliable general-purpose TCP yet.',0
 
 include 'net.asm'
 include 'ip.asm'
