@@ -1,4 +1,4 @@
-# FASM Links / TextOS 0.6.8 (experimental)
+# FASM Links / TextOS 0.6.9 (experimental)
 
 This is a 32-bit FASM bootable floppy prototype for the ne2k interface emulated by copy.sh/v86. It has a VGA text console, PCI discovery, NE2000 transmit/receive, ARP, and an incomplete DHCP/IPv4/TCP prototype.
 
@@ -38,3 +38,7 @@ Preserves the 0.6.6 TX-memory repair. Adds automatic startup acquisition, RTC-dr
 ## 0.6.8
 
 User runtime test of 0.6.7 confirmed DHCP BOUND with gateway/DNS/subnet and a 900-second lease. Gateway ARP remained unresolved after a single attempt. This build retries unresolved gateway ARP every three RTC seconds, validates directed ARP requests/replies and source MAC consistency, and adds page 6 ARP diagnostics. Press A to retry and show ARP diagnostics; C shows IP/TCP status. No live verification of 0.6.8 yet. Lease renewal/expiry and full TCP remain outstanding.
+
+## 0.6.9
+
+User test of 0.6.8 showed 30 ARP requests, zero replies, and 22 gateway-originated ARP frames rejected. Allow learning the configured gateway's mapping from broadcast requests for other IP addresses while retaining source MAC consistency, unicast sender validation, and directed reply validation. Do not replace an established mapping silently. Page 6 shows the opcode used to learn the gateway. ARP is not authenticated; this does not establish gateway identity against a malicious LAN peer. Runtime verification of 0.6.9 is pending.

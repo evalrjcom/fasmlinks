@@ -287,6 +287,10 @@ arp_detail:
  call print
  mov eax,[arp_gateway_learned]
  call print_hex32
+ mov esi,arp_detail_learn_op
+ call print
+ mov eax,[arp_learn_opcode]
+ call print_hex32
  mov esi,arp_detail_sender
  call print
  mov eax,[arp_last_sender]
@@ -451,7 +455,7 @@ print:
  jmp .next
 .done:
  ret
-header db 'FASM TEXTOS 0.6.8 |  32-bit protected mode',0
+header db 'FASM TEXTOS 0.6.9 |  32-bit protected mode',0
 menu db '[1] Home [2] Sites [3] About [4] DHCP trace [5] IP/TCP [6] ARP',0
 footer db '1 Home 2 Sites 3 About 4 Trace 5 IP/TCP 6 ARP D DHCP A ARP C TCP T TX R RX',0
 arp_detail_title db 'Gateway ARP diagnostics (6 refresh, A retry)',0
@@ -460,6 +464,7 @@ arp_detail_gateway db 10,'Gateway IP: ',0
 arp_detail_seen db 10,'ARP frames seen: 0x',0
 arp_detail_gwseen db 10,'Gateway sender seen: 0x',0
 arp_detail_reject db 10,'Gateway rejected: 0x',0
+arp_detail_learn_op db 10,'Learned via (1=req,2=reply): 0x',0
 arp_detail_learned db 10,'Gateway learned: 0x',0
 arp_detail_sender db 10,'Last ARP sender IP: ',0
 arp_detail_target db 10,'Last ARP target IP: ',0
@@ -519,7 +524,7 @@ tx_text db 'Diagnostic Ethernet frame queued for transmission.',0
 rx_text db 'Receive ring polled. Counters are internal (no HTTP yet).',0
 home_text db 'HOME  |  DuckDuckGo search',10,10,'https://lite.duckduckgo.com/lite/',10,10,'Search is not connected yet.',0
 sites_text db 'TEXT-FRIENDLY WEBSITES',10,10,'https://lite.duckduckgo.com/lite/',10,'https://www.wikipedia.org/',10,'https://www.gutenberg.org/',10,'https://text.npr.org/',10,'https://info.cern.ch/',10,'https://example.com/',0
-about_text db 'FASM TextOS 0.6.8 - RX validation and DHCP trace',10,10,'No DNS, TLS, or reliable general-purpose TCP yet.',0
+about_text db 'FASM TextOS 0.6.9 - RX validation and DHCP trace',10,10,'No DNS, TLS, or reliable general-purpose TCP yet.',0
 
 include 'net.asm'
 include 'ip.asm'

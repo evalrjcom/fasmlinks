@@ -398,20 +398,34 @@ arp_gateway:
 ; Capture gateway ARP replies.
 ; Called from receive routine for ARP frames before normal request processing.
 arp_learn:
- ; NEW: learn the gateway from a directed request or reply only.
- ; Ethernet source must equal ARP sender MAC, with valid unicast MAC.
+ ; FIX 0.6.9: a broadcast ARP request from the configured gateway
+ ; can supply its sender mapping even when asking about another host.
+ ; RFC 826 sender mapping is useful independently of the target.
+ ; Require matching Ethernet/ARP source and valid unicast MAC.
+ ; This is ordinary ARP learning, not authentication.
  cmp dword [gateway_ip],0
  je .end
  mov eax,dword [net_rx_buffer+28]
  cmp eax,dword [gateway_ip]
  jne .end
  inc dword [arp_gateway_seen]
+ cmp word [net_rx_buffer+20],0100h
+ jne .reply
+ ; FIX: allow broadcast gateway requests addressed to other IPs.
+ ; Directed requests must still target our local IPv4 address.
  mov eax,dword [net_rx_buffer+38]
  cmp eax,dword [local_ip]
- jne .reject
- cmp word [net_rx_buffer+20],0100h
  je .check_sender
+ cmp dword [net_rx_buffer],0ffffffffh
+ jne .reject
+ cmp word [net_rx_buffer+4],0ffffh
+ jne .reject
+ jmp .check_sender
+.reply:
  cmp word [net_rx_buffer+20],0200h
+ jne .reject
+ mov eax,dword [net_rx_buffer+38]
+ cmp eax,dword [local_ip]
  jne .reject
  ; Replies must explicitly name this guest's hardware address.
  mov esi,net_rx_buffer+32
@@ -431,12 +445,25 @@ arp_learn:
  mov ecx,6
  repe cmpsb
  jne .reject
+ ; FIX: do not silently replace an established gateway mapping.
+ cmp byte [gateway_known],1
+ jne .learn
+ mov esi,net_rx_buffer+22
+ mov edi,gateway_mac
+ mov ecx,6
+ repe cmpsb
+ jne .reject
+ ret
+.learn:
  mov esi,net_rx_buffer+22
  mov edi,gateway_mac
  mov ecx,6
  rep movsb
  mov byte [gateway_known],1
  inc dword [arp_gateway_learned]
+ ; Record whether the mapping came from request or reply.
+ mov eax,[arp_last_opcode]
+ mov [arp_learn_opcode],eax
  ret
 .reject:
  inc dword [arp_gateway_rejected]
@@ -469,6 +496,7 @@ arp_last_target dd 0
 arp_last_opcode dd 0
 arp_gateway_seen dd 0
 arp_gateway_rejected dd 0
+arp_learn_opcode dd 0
 
 tcp_syn_probe:
  cmp byte [gateway_known],1
