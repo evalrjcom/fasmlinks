@@ -611,6 +611,8 @@ tcp_syn_probe:
  ; FIX: DNS transport must not invalidate the previous HTTP response.
  cmp word [tcp_remote_port],3500h
  je .dns_reset
+ mov dword [render_page],0
+ mov byte [render_more],0
  mov dword [http_scroll],0
  mov dword [http_page_end],0
  mov dword [http_bytes],0
