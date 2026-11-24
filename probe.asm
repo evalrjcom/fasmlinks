@@ -60,7 +60,8 @@ port443_info:
  call print
  mov esi,probe_dest_label
  call print
- mov eax,[remote_ip]
+ ; FIX: IPv4 address is declared as four bytes.
+ mov eax,dword [remote_ip]
  call print_ipv4
  mov esi,probe_port_label
  call print

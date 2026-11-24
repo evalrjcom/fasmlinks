@@ -345,10 +345,11 @@ tcp_receive:
  mov al,[net_rx_buffer+47]
  mov [tcp_last_flags],al
  mov [probe_last_flags],al
- mov eax,[net_rx_buffer+42]
+ ; FIX: byte-declared packet buffer requires explicit dword reads.
+ mov eax,dword [net_rx_buffer+42]
  bswap eax
  mov [probe_last_ack],eax
- mov eax,[net_rx_buffer+38]
+ mov eax,dword [net_rx_buffer+38]
  bswap eax
  mov [probe_last_seq],eax
  cmp byte [tcp_state],1

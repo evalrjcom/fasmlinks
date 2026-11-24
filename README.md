@@ -114,3 +114,7 @@ F7 starts an explicitly unauthenticated handshake DIAGNOSTIC to 1.1.1.1:443 with
 ## 0.8.4
 
 F8 isolated TCP connect-only diagnostic to 1.1.1.1:443, F9 refreshes per-connection counters (also works for F6/F7). SYN now advertises MSS 536 and adjusts checksum/IP length accordingly. Counters distinguish NIC submission, pre-IP-filter destination-port matches, IP-validated matches, full tuple, rejected tuple/checksum/ACK/flags, accepted SYN-ACK and RST. Preserve previous HTTP capture during TLS/connect-only probes. F10 adds TCP/engine state and explicit timeout BAD00106 / reset BAD00107. F8 closes after successful SYN-ACK without application data. This is a diagnostic release, not verified HTTPS; no trusted roots yet. Manual refresh, no continuous screen repaint. Existing C and F6 HTTP tests retained. v86 backend behavior and port 443 reachability remain unverified.
+
+### 0.8.4 assembler repair
+
+Explicit dword operands for TCP sequence/ACK reads and diagnostic IPv4 display fix FASM operand-size mismatch. Version unchanged.
