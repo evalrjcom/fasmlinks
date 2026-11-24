@@ -35,6 +35,7 @@ stream_reset:
  mov dword [stream_peer_window],0
  mov byte [stream_eof],0
  mov byte [stream_http_probe],0
+ mov byte [stream_tls_probe],0
  ret
 
 ; ESI=source, ECX=count. Preserve registers. CF=1 if no space.

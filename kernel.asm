@@ -14,8 +14,9 @@ start:
  mov edi,0xb8000+160*2
  call print
  ; Execute separately loaded C ABI probe.
- mov eax,40000h
- call eax
+ xor eax,eax ; dispatch operation zero: isolated offline self-test
+ xor edx,edx
+ call tls_call
  mov [tls_probe_result],eax
  ; CI debug console: emit the actual guest result (no networking required).
  mov esi,tls_boot_fail
@@ -43,6 +44,7 @@ main:
  call ne_poll
  call dhcp_tick ; NEW: nonblocking RTC retry scheduler
  call stream_probe_poll
+ call tls_poll
 .keyboard:
  in al,0x64
  test al,1
@@ -60,6 +62,8 @@ main:
  je http_summary
  cmp al,0x40
  je stream_probe_open
+ cmp al,0x41
+ je tls_probe_open
  cmp al,0x02
  je home
  cmp al,0x03
@@ -112,12 +116,28 @@ tls_info:
  call print
  mov eax,[tls_probe_result]
  call print_hex32
+ mov esi,tls_live_label
+ call print
+ mov eax,[tls_live_status]
+ call print_hex32
+ mov esi,tls_error_label
+ call print
+ mov eax,[tls_last_error]
+ call print_hex32
+ mov esi,tls_tx_label
+ call print
+ mov eax,[tls_record_tx]
+ call print_hex32
+ mov esi,tls_rx_label
+ call print
+ mov eax,[tls_record_rx]
+ call print_hex32
  jmp main
 tls_probe_result dd 0
 tls_boot_pass db 'TEXTOS TLS SELFTEST PASS',10,0
 tls_boot_fail db 'TEXTOS TLS SELFTEST FAIL',10,0
 links_menu_text db 'File   View   Link   Setup   Help',10,10,'F2 Open URL   9 Text view   7 Raw response',10,'F5 HTTP status   PgUp/PgDn Scroll',10,'4 DHCP   5 TCP   6 ARP   G DNS',10,'F10 TLS platform status   Esc Menu',0
-tls_info_text db 'TLS platform status (not HTTPS yet)',10,10,'BearSSL offline ClientHello test (expected 544C5333): 0x',0
+tls_info_text db 'TLS diagnostic (no trusted roots / no HTTPS content)',10,10,'BearSSL offline ClientHello test (expected 544C5333): 0x',0
 home:
  mov esi,home_text
  jmp show
@@ -141,6 +161,7 @@ dhcp_test:
  call dhcp_discover
  jmp diagnostics
 syn_test:
+ call tls_cancel
  ; FIX: manual HTTP test cancels pending DNS; do not mix connection tuples.
  cmp byte [dhcp_state],3
  jne network_detail
@@ -830,9 +851,9 @@ print:
  jmp .next
 .done:
  ret
-header db 'FASM TEXTOS 0.8.2 |  32-bit protected mode',0
+header db 'FASM TEXTOS 0.8.3 |  32-bit protected mode',0
 menu db '1 Home 2 Sites 3 About 4 DHCP 5 TCP 6 ARP 7 Raw 8 DNS 9 Text',0
-footer db 'F2 URL | F5 Status | F6 Stream | C Test | 7 Raw | 8 DNS | 9 Text | N/P',0
+footer db 'F2 URL | F5 Status | F6 Stream | F7 TLS | F10 Info | C Test | 7 Raw | 9 Text',0
 http_empty_msg db 10,'No HTTP response captured. Press C, then 5 for status and 7 to refresh.',0
 http_title db 'HTTP raw response (7 refresh, N next, P first)',0
 arp_detail_title db 'Gateway ARP diagnostics (6 refresh, A retry)',0
@@ -902,11 +923,12 @@ tx_text db 'Diagnostic Ethernet frame queued for transmission.',0
 rx_text db 'Receive ring polled. Counters are internal (no HTTP yet).',0
 home_text db 'HOME  |  DuckDuckGo search',10,10,'https://lite.duckduckgo.com/lite/',10,10,'Search is not connected yet.',0
 sites_text db 'TEXT-FRIENDLY WEBSITES',10,10,'https://lite.duckduckgo.com/lite/',10,'https://www.wikipedia.org/',10,'https://www.gutenberg.org/',10,'https://text.npr.org/',10,'https://info.cern.ch/',10,'https://example.com/',0
-about_text db 'FASM TextOS 0.8.2 - RX validation and DHCP trace',10,10,'Experimental DNS A lookup and HTTP; no TLS yet.',0
+about_text db 'FASM TextOS 0.8.3 - RX validation and DHCP trace',10,10,'Experimental DNS A lookup and HTTP; no TLS yet.',0
 
 include 'net.asm'
 include 'ip.asm'
 include 'stream.asm'
+include 'tls.asm'
 include 'dhcp.asm'
 include 'browser.asm'
 include 'dns.asm'
