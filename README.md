@@ -1,4 +1,4 @@
-# FASM Links / TextOS 0.7.0 (experimental)
+# FASM Links / TextOS 0.7.1 (experimental)
 
 This is a 32-bit FASM bootable floppy prototype for the ne2k interface emulated by copy.sh/v86. It has a VGA text console, PCI discovery, NE2000 transmit/receive, ARP, and an incomplete DHCP/IPv4/TCP prototype.
 
@@ -46,3 +46,7 @@ User test of 0.6.8 showed 30 ARP requests, zero replies, and 22 gateway-originat
 ## 0.7.0
 
 Preserves tested DHCP and gateway ARP. Experimental TCP probe gains checksum and tuple validation, variable initial sequence, bounded SYN retries and idle timeout, cumulative ACKs, and 4096-byte raw HTTP capture in scratch RAM. Press C to connect to the existing 1.1.1.1:80 target, 5 for status, 7 for response preview. TCP state 4=reset, 5=timeout. No complete TCP retransmission/close state machine, DNS, HTML renderer, TLS or DHCP renewal yet. Runtime verification pending.
+
+## 0.7.1
+
+User verified a real Cloudflare HTTP 301 response in 0.7.0. This version retains C for that probe, adds 8 for a DNS A lookup of info.cern.ch followed by HTTP, 9 for basic body text preview, N/P for raw response page navigation, 64 KiB capture, and a fresh ephemeral TCP port per connection. DNS supports a direct first A answer only, not CNAME or general resolution. Plain HTTP only, no arbitrary URL input, TLS, redirect following or complete HTML parser. Runtime testing pending.

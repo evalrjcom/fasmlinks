@@ -44,6 +44,14 @@ main:
  je arp_detail
  cmp al,0x08
  je http_view
+ cmp al,0x09
+ je dns_open
+ cmp al,0x0a
+ je text_view
+ cmp al,0x31
+ je http_next
+ cmp al,0x19
+ je http_prev
  cmp al,0x14
  je tx_test
  cmp al,0x13
@@ -78,6 +86,16 @@ dhcp_test:
  call dhcp_discover
  jmp diagnostics
 syn_test:
+ ; Keep the known-good Cloudflare probe available.
+ cmp byte [tcp_state],1
+ je network_detail
+ cmp byte [tcp_state],2
+ je network_detail
+ cmp byte [dns_state],1
+ je network_detail
+ mov dword [remote_ip],01010101h
+ mov dword [http_request_ptr],http_get_request
+ mov dword [http_request_len],http_get_end-http_get_request
  call tcp_syn_probe
  jmp network_detail
 network:
@@ -352,6 +370,11 @@ http_view:
  mov edi,0xb8000+160*6
  mov esi,HTTP_BUFFER
  mov ecx,[http_stored]
+ mov eax,[http_scroll]
+ cmp eax,ecx
+ jae .done
+ add esi,eax
+ sub ecx,eax
 .next:
  test ecx,ecx
  jz .done
@@ -386,7 +409,123 @@ http_view:
  pop ecx
  jmp .next
 .done:
+ mov eax,esi
+ sub eax,HTTP_BUFFER
+ mov [http_page_end],eax
  jmp main
+
+; NEW: raw page navigation uses the exact consumed byte offset.
+http_next:
+ mov eax,[http_page_end]
+ cmp eax,[http_stored]
+ jae http_view
+ cmp eax,[http_scroll]
+ jbe http_view
+ mov [http_scroll],eax
+ jmp http_view
+http_prev:
+ ; Return to start (no arbitrary offset into an HTML token).
+ mov dword [http_scroll],0
+ jmp http_view
+
+dns_open:
+ call dns_start
+ jmp dns_detail
+dns_detail:
+ mov edi,0xb8000+160*4
+ mov ecx,80*20
+ mov ax,1f20h
+ rep stosw
+ mov edi,0xb8000+160*4
+ mov esi,dns_title
+ call print
+ mov esi,dns_state_label
+ call print
+ movzx eax,byte [dns_state]
+ call print_hex32
+ mov esi,dns_address_label
+ call print
+ mov eax,[dns_result]
+ call print_ipv4
+ mov esi,dns_tx_label
+ call print
+ mov eax,[dns_tx]
+ call print_hex32
+ mov esi,dns_rx_label
+ call print
+ mov eax,[dns_rx]
+ call print_hex32
+ jmp main
+
+text_view:
+ ; Minimal body-only HTML preview. Not a standards-complete renderer.
+ mov edi,0xb8000+160*4
+ mov ecx,80*20
+ mov ax,1f20h
+ rep stosw
+ mov edi,0xb8000+160*4
+ mov esi,text_title
+ call print
+ mov esi,HTTP_BUFFER
+ mov ecx,[http_stored]
+ ; Find the exact HTTP header/body separator within captured bytes.
+.find_body:
+ cmp ecx,4
+ jb .done
+ cmp dword [esi],0a0d0a0dh
+ je .body
+ inc esi
+ dec ecx
+ jmp .find_body
+.body:
+ add esi,4
+ sub ecx,4
+ mov edi,0xb8000+160*6
+ xor ebx,ebx ; BL = inside tag
+.loop:
+ test ecx,ecx
+ jz .done
+ cmp edi,0xb8000+160*24
+ jae .done
+ lodsb
+ dec ecx
+ cmp al,60
+ je .tag
+ cmp al,62
+ je .tag_end
+ test bl,bl
+ jnz .loop
+ cmp al,13
+ je .loop
+ cmp al,10
+ je .space
+ cmp al,32
+ jb .space
+ cmp al,126
+ jbe .write
+.space:
+ mov al,32
+.write:
+ mov ah,1fh
+ stosw
+ jmp .loop
+.tag:
+ mov bl,1
+ jmp .loop
+.tag_end:
+ xor ebx,ebx
+ jmp .loop
+.done:
+ jmp main
+
+http_scroll dd 0
+http_page_end dd 0
+dns_title db 'DNS / HTTP test: info.cern.ch (8 refresh/retry)',0
+dns_state_label db 10,'DNS state: 0 idle,1 waiting,2 resolved,3 failed: 0x',0
+dns_address_label db 10,'Resolved IPv4: ',0
+dns_tx_label db 10,'DNS queries: 0x',0
+dns_rx_label db 10,'DNS responses: 0x',0
+text_title db 'HTML body text preview (9 refresh; 7 raw)',0
 
 ; FIX 0.6.6: raw DWORD has octets in memory order (low byte first).
 ; Display a space and four decimal octets. EDI points at VGA text memory.
@@ -509,10 +648,10 @@ print:
  jmp .next
 .done:
  ret
-header db 'FASM TEXTOS 0.7.0 |  32-bit protected mode',0
-menu db '[1] Home [2] Sites [3] About [4] DHCP trace [5] IP/TCP [6] ARP [7] HTTP',0
-footer db '1 Home 2 Sites 3 About 4 Trace 5 IP/TCP 6 ARP 7 HTTP D DHCP A ARP C TCP T TX R RX',0
-http_title db 'HTTP raw response (7 refresh; first screen only)',0
+header db 'FASM TEXTOS 0.7.1 |  32-bit protected mode',0
+menu db '1 Home 2 Sites 3 About 4 DHCP 5 TCP 6 ARP 7 Raw 8 DNS 9 Text',0
+footer db 'C Cloudflare | 8 CERN DNS/HTTP | 7 Raw | 9 Text | N Next P First | 5 Status',0
+http_title db 'HTTP raw response (7 refresh, N next, P first)',0
 arp_detail_title db 'Gateway ARP diagnostics (6 refresh, A retry)',0
 arp_detail_local db 10,'Local IP: ',0
 arp_detail_gateway db 10,'Gateway IP: ',0
@@ -580,8 +719,9 @@ tx_text db 'Diagnostic Ethernet frame queued for transmission.',0
 rx_text db 'Receive ring polled. Counters are internal (no HTTP yet).',0
 home_text db 'HOME  |  DuckDuckGo search',10,10,'https://lite.duckduckgo.com/lite/',10,10,'Search is not connected yet.',0
 sites_text db 'TEXT-FRIENDLY WEBSITES',10,10,'https://lite.duckduckgo.com/lite/',10,'https://www.wikipedia.org/',10,'https://www.gutenberg.org/',10,'https://text.npr.org/',10,'https://info.cern.ch/',10,'https://example.com/',0
-about_text db 'FASM TextOS 0.7.0 - RX validation and DHCP trace',10,10,'No DNS, TLS, or reliable general-purpose TCP yet.',0
+about_text db 'FASM TextOS 0.7.1 - RX validation and DHCP trace',10,10,'Experimental DNS A lookup and HTTP; no TLS yet.',0
 
 include 'net.asm'
 include 'ip.asm'
 include 'dhcp.asm'
+include 'dns.asm'

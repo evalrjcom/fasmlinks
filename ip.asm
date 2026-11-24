@@ -161,6 +161,10 @@ ipv4_receive:
  lea eax,[eax+20]
  cmp eax,edx
  ja .invalid
+ cmp word [net_rx_buffer+34],3500h
+ jne .dhcp_udp
+ jmp dns_receive
+.dhcp_udp:
  jmp udp_receive
 .short:
  inc dword [ip_truncated]
@@ -278,7 +282,8 @@ tcp_receive:
  jne .end
  cmp word [net_rx_buffer+34],0x5000
  jne .end
- cmp word [net_rx_buffer+36],0x3930
+ mov ax,[tcp_local_port]
+ cmp word [net_rx_buffer+36],ax
  jne .end
  movzx eax,byte [net_rx_buffer+46]
  shr eax,4
@@ -339,10 +344,11 @@ tcp_receive:
  xor ecx,ecx
  call tcp_send_segment
  mov byte [tcp_flags],18h
- mov esi,http_get_request
- mov ecx,http_get_end-http_get_request
+ mov esi,[http_request_ptr]
+ mov ecx,[http_request_len]
  call tcp_send_segment
- add dword [tcp_seq_num],http_get_end-http_get_request
+ mov eax,[http_request_len]
+ add [tcp_seq_num],eax
  jmp .end
 .established:
  mov eax,dword [net_rx_buffer+38]
@@ -369,7 +375,7 @@ tcp_receive:
  mov esi,net_rx_buffer+34
  add esi,[tcp_rx_header]
  mov edi,[http_stored]
- mov eax,4096
+ mov eax,HTTP_CAPACITY
  sub eax,edi
  cmp ecx,eax
  jbe .copy
@@ -563,7 +569,13 @@ tcp_syn_probe:
  rdtsc
  xor eax,edx
  mov [tcp_seq_num],eax
+ ; NEW: select a fresh ephemeral port for each connection.
+ and ax,3fffh
+ or ax,0c000h
+ xchg al,ah
+ mov [tcp_local_port],ax
  mov dword [tcp_ack_num],0
+ mov dword [http_scroll],0
  mov dword [http_bytes],0
  mov dword [http_stored],0
  mov byte [tcp_elapsed],0
@@ -632,7 +644,8 @@ tcp_send_segment:
  mov [tx_frame+26],eax
  mov eax,dword [remote_ip]
  mov [tx_frame+30],eax
- mov word [tx_frame+34],0x3930
+ mov ax,[tcp_local_port]
+ mov word [tx_frame+34],ax
  mov word [tx_frame+36],0x5000
  mov eax,[tcp_seq_num]
  bswap eax
@@ -701,6 +714,7 @@ tcp_send_segment:
 
 http_get_request db 'GET / HTTP/1.0',13,10,'Host: one.one.one.one',13,10,'Connection: close',13,10,13,10
 http_get_end:
+tcp_local_port dw 0
 tcp_state db 0
 tcp_flags db 0
 tcp_seq_num dd 0
@@ -709,6 +723,9 @@ tcp_payload_len dw 0
 tcp_ip_len dw 0
 http_bytes dd 0
 HTTP_BUFFER = 20000h ; scratch RAM outside loaded kernel and stack
+HTTP_CAPACITY = 65536 ; 20000h..2FFFFh
+http_request_ptr dd http_get_request
+http_request_len dd http_get_end-http_get_request
 http_stored dd 0
 tcp_bad_checksum dd 0
 tcp_rx_length dd 0

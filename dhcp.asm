@@ -450,7 +450,10 @@ dhcp_tick:
  push eax
  call arp_tick ; keep gateway discovery alive after DHCP ACK
  pop eax
+ push eax
  call tcp_tick
+ pop eax
+ call dns_tick
  jmp .done
 .acquiring:
  cmp byte [dhcp_state],0
