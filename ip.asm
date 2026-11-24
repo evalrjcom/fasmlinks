@@ -170,7 +170,7 @@ icmp_receive:
  jb .end
  cmp dword [local_ip],0
  je .end
- mov eax,[net_rx_buffer+30]
+ mov eax,dword [net_rx_buffer+30]
  cmp eax,dword [local_ip] ; no broadcast echo responses
  jne .end
  mov esi,net_rx_buffer
@@ -266,7 +266,7 @@ tcp_receive:
  add eax,20
  cmp eax,edx
  ja .end
- mov eax,[net_rx_buffer+30]
+ mov eax,dword [net_rx_buffer+30]
  cmp eax,dword [local_ip]
  jne .end
  inc dword [tcp_packets]
@@ -394,7 +394,7 @@ arp_learn:
  mov eax,dword [net_rx_buffer+28]
  cmp eax,dword [gateway_ip]
  jne .end
- mov eax,[net_rx_buffer+38]
+ mov eax,dword [net_rx_buffer+38]
  cmp eax,dword [local_ip] ; FIX: gateway reply must target our address
  jne .end
  mov esi,net_rx_buffer+22
