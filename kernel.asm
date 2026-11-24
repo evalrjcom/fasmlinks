@@ -42,6 +42,8 @@ main:
  je network_detail
  cmp al,0x07
  je arp_detail
+ cmp al,0x08
+ je http_view
  cmp al,0x14
  je tx_test
  cmp al,0x13
@@ -230,6 +232,10 @@ network_detail:
  call print
  mov eax,[http_bytes]
  call print_hex32
+ mov esi,tcp_bad_label
+ call print
+ mov eax,[tcp_bad_checksum]
+ call print_hex32
  mov esi,detail_txerr
  call print
  mov eax,[net_tx_errors]
@@ -333,6 +339,54 @@ print_mac:
  pop ecx
  pop eax
  ret
+
+http_view:
+ ; Display bounded, sanitized raw response; never execute received bytes.
+ mov edi,0xb8000+160*4
+ mov ecx,80*20
+ mov ax,1f20h
+ rep stosw
+ mov edi,0xb8000+160*4
+ mov esi,http_title
+ call print
+ mov edi,0xb8000+160*6
+ mov esi,HTTP_BUFFER
+ mov ecx,[http_stored]
+.next:
+ test ecx,ecx
+ jz .done
+ cmp edi,0xb8000+160*24
+ jae .done
+ lodsb
+ dec ecx
+ cmp al,13
+ je .next
+ cmp al,10
+ je .newline
+ cmp al,32
+ jb .replace
+ cmp al,126
+ jbe .write
+.replace:
+ mov al,'.'
+.write:
+ mov ah,1fh
+ stosw
+ jmp .next
+.newline:
+ push ecx
+ mov eax,edi
+ sub eax,0xb8000
+ xor edx,edx
+ mov ecx,160
+ div ecx
+ inc eax
+ imul eax,160
+ lea edi,[eax+0xb8000]
+ pop ecx
+ jmp .next
+.done:
+ jmp main
 
 ; FIX 0.6.6: raw DWORD has octets in memory order (low byte first).
 ; Display a space and four decimal octets. EDI points at VGA text memory.
@@ -455,10 +509,11 @@ print:
  jmp .next
 .done:
  ret
-header db 'FASM TEXTOS 0.6.9 |  32-bit protected mode',0
-menu db '[1] Home [2] Sites [3] About [4] DHCP trace [5] IP/TCP [6] ARP',0
-footer db '1 Home 2 Sites 3 About 4 Trace 5 IP/TCP 6 ARP D DHCP A ARP C TCP T TX R RX',0
-arp_detail_title db 'Gateway ARP diagnostics (6 refresh, A retry)',0
+header db 'FASM TEXTOS 0.7.0 |  32-bit protected mode',0
+menu db '[1] Home [2] Sites [3] About [4] DHCP trace [5] IP/TCP [6] ARP [7] HTTP',0
+footer db '1 Home 2 Sites 3 About 4 Trace 5 IP/TCP 6 ARP 7 HTTP D DHCP A ARP C TCP T TX R RX',0
+arp_http_title db 'HTTP raw response (7 refresh; first screen only)',0
+detail_title db 'Gateway ARP diagnostics (6 refresh, A retry)',0
 arp_detail_local db 10,'Local IP: ',0
 arp_detail_gateway db 10,'Gateway IP: ',0
 arp_detail_seen db 10,'ARP frames seen: 0x',0
@@ -479,6 +534,7 @@ detail_dns db 10,'DNS: ',0
 detail_server db 10,'DHCP server: ',0
 detail_lease db 10,'Lease seconds (hex): 0x',0
 detail_xid db 10,'Transaction ID: 0x',0
+tcp_bad_label db 10,'TCP checksum errors: 0x',0
 detail_txerr db 10,'TX errors: 0x',0
 diag_title db 'NE2000 PCI diagnostics',10,0
 diag_tx db 10,'TX attempted: 0x',0
@@ -524,7 +580,7 @@ tx_text db 'Diagnostic Ethernet frame queued for transmission.',0
 rx_text db 'Receive ring polled. Counters are internal (no HTTP yet).',0
 home_text db 'HOME  |  DuckDuckGo search',10,10,'https://lite.duckduckgo.com/lite/',10,10,'Search is not connected yet.',0
 sites_text db 'TEXT-FRIENDLY WEBSITES',10,10,'https://lite.duckduckgo.com/lite/',10,'https://www.wikipedia.org/',10,'https://www.gutenberg.org/',10,'https://text.npr.org/',10,'https://info.cern.ch/',10,'https://example.com/',0
-about_text db 'FASM TextOS 0.6.9 - RX validation and DHCP trace',10,10,'No DNS, TLS, or reliable general-purpose TCP yet.',0
+about_text db 'FASM TextOS 0.7.0 - RX validation and DHCP trace',10,10,'No DNS, TLS, or reliable general-purpose TCP yet.',0
 
 include 'net.asm'
 include 'ip.asm'

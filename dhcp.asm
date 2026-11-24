@@ -447,7 +447,10 @@ dhcp_tick:
  jz .done
  cmp byte [dhcp_state],3
  jne .acquiring
- call arp_tick ; NEW: keep gateway discovery alive after DHCP ACK
+ push eax
+ call arp_tick ; keep gateway discovery alive after DHCP ACK
+ pop eax
+ call tcp_tick
  jmp .done
 .acquiring:
  cmp byte [dhcp_state],0

@@ -263,98 +263,150 @@ checksum:
  ret
 
 tcp_receive:
- ; FIX: reject short TCP headers and traffic not addressed to our IP.
+ ; 0.7.0: validate tuple, header and pseudo-header checksum first.
  cmp edx,40
  jb .end
+ cmp byte [tcp_state],1
+ jb .end
+ cmp byte [tcp_state],2
+ ja .end
+ mov eax,dword [net_rx_buffer+30]
+ cmp eax,dword [local_ip]
+ jne .end
+ mov eax,dword [net_rx_buffer+26]
+ cmp eax,dword [remote_ip]
+ jne .end
+ cmp word [net_rx_buffer+34],0x5000
+ jne .end
+ cmp word [net_rx_buffer+36],0x3930
+ jne .end
  movzx eax,byte [net_rx_buffer+46]
  shr eax,4
  cmp eax,5
  jb .end
  shl eax,2
+ mov [tcp_rx_header],eax
  add eax,20
  cmp eax,edx
  ja .end
- mov eax,dword [net_rx_buffer+30]
- cmp eax,dword [local_ip]
- jne .end
+ sub edx,20
+ mov [tcp_rx_length],edx
+ mov esi,net_rx_buffer+26
+ mov ecx,8
+ call sum_words
+ mov edx,eax
+ add edx,6
+ add edx,[tcp_rx_length]
+ mov esi,net_rx_buffer+34
+ mov ecx,[tcp_rx_length]
+ call sum_words
+ add eax,edx
+ mov edx,eax
+ shr eax,16
+ and edx,0ffffh
+ add eax,edx
+ mov edx,eax
+ shr edx,16
+ add ax,dx
+ cmp ax,0ffffh
+ jne .bad_checksum
  inc dword [tcp_packets]
  mov al,[net_rx_buffer+47]
  mov [tcp_last_flags],al
- cmp byte [tcp_state],0
- je .end
- ; accept only remote port 80 -> local port 12345
- cmp word [net_rx_buffer+34],0x5000
- jne .end
- cmp word [net_rx_buffer+36],0x3930
- jne .end
- mov eax,dword [net_rx_buffer+26]
- cmp eax,dword [remote_ip]
- jne .end
- test byte [net_rx_buffer+47],4
- jz .not_rst
- mov byte [tcp_state],0
- jmp .end
-.not_rst:
  cmp byte [tcp_state],1
  jne .established
- ; SYN+ACK expected, ACK must match initial seq+1
- mov al,[net_rx_buffer+47]
- and al,0x12
- cmp al,0x12
+ ; SYN-ACK or RST must acknowledge our actual initial sequence.
+ mov eax,dword [net_rx_buffer+42]
+ bswap eax
+ mov edx,[tcp_seq_num]
+ inc edx
+ cmp eax,edx
  jne .end
- cmp dword [net_rx_buffer+42],0x02000000
+ test byte [net_rx_buffer+47],4
+ jnz .reset
+ mov al,[net_rx_buffer+47]
+ and al,13h
+ cmp al,12h
  jne .end
  mov eax,dword [net_rx_buffer+38]
  bswap eax
  inc eax
  mov [tcp_ack_num],eax
- mov dword [tcp_seq_num],2
+ inc dword [tcp_seq_num]
  mov byte [tcp_state],2
- mov byte [tcp_flags],0x10
- xor ecx,ecx ; FIX: ACK-only segment has no payload
+ mov byte [tcp_elapsed],0
+ mov byte [tcp_flags],10h
+ xor ecx,ecx
  call tcp_send_segment
- ; send GET after ACK
- mov byte [tcp_flags],0x18
+ mov byte [tcp_flags],18h
  mov esi,http_get_request
  mov ecx,http_get_end-http_get_request
  call tcp_send_segment
  add dword [tcp_seq_num],http_get_end-http_get_request
  jmp .end
 .established:
- cmp byte [tcp_state],2
- jne .end
- ; data length = IPv4 total - 20 IP - TCP header length
- movzx ecx,word [net_rx_buffer+16]
- xchg cl,ch
- sub ecx,20
- jc .end
- movzx edx,byte [net_rx_buffer+46]
- shr edx,4
- shl edx,2
- cmp edx,20
- jb .end
- sub ecx,edx
- jc .end
- cmp ecx,0
- je .check_fin
- ; only accept in-order data
  mov eax,dword [net_rx_buffer+38]
  bswap eax
  cmp eax,[tcp_ack_num]
- jne .end
- add dword [tcp_ack_num],ecx
- add dword [http_bytes],ecx
- mov byte [tcp_flags],0x10
- xor ecx,ecx ; FIX: ACK-only segment has no payload
- call tcp_send_segment
-.check_fin:
- test byte [net_rx_buffer+47],1
+ jne .duplicate
+ test byte [net_rx_buffer+47],4
+ jnz .reset
+ test byte [net_rx_buffer+47],10h
  jz .end
+ ; Only acknowledge data from a segment with a plausible ACK.
+ mov eax,dword [net_rx_buffer+42]
+ bswap eax
+ sub eax,[tcp_seq_num]
+ test eax,eax
+ jg .end
+ mov byte [tcp_elapsed],0
+ mov ecx,[tcp_rx_length]
+ sub ecx,[tcp_rx_header]
+ mov ebx,ecx
+ test ecx,ecx
+ jz .fin
+ ; Bounded raw HTTP capture at dedicated scratch RAM, not in boot image.
+ mov esi,net_rx_buffer+34
+ add esi,[tcp_rx_header]
+ mov edi,[http_stored]
+ mov eax,4096
+ sub eax,edi
+ cmp ecx,eax
+ jbe .copy
+ mov ecx,eax
+.copy:
+ add [http_stored],ecx
+ add edi,HTTP_BUFFER
+ rep movsb
+ add [http_bytes],ebx
+ add [tcp_ack_num],ebx
+.fin:
+ test byte [net_rx_buffer+47],1
+ jz .data_ack
  inc dword [tcp_ack_num]
- mov byte [tcp_flags],0x10
- xor ecx,ecx ; FIX: ACK-only segment has no payload
- call tcp_send_segment
  mov byte [tcp_state],3
+.data_ack:
+ test ebx,ebx
+ jnz .send_ack
+ cmp byte [tcp_state],3
+ jne .end
+.send_ack:
+ mov byte [tcp_flags],10h
+ xor ecx,ecx
+ call tcp_send_segment
+ jmp .end
+.duplicate:
+ ; No out-of-order buffer: advertise current cumulative ACK.
+ cmp byte [tcp_state],2
+ jne .end
+ test byte [net_rx_buffer+47],4
+ jnz .end
+ jmp .send_ack
+.reset:
+ mov byte [tcp_state],4
+ jmp .end
+.bad_checksum:
+ inc dword [tcp_bad_checksum]
 .end:
  ret
 
@@ -503,14 +555,55 @@ tcp_syn_probe:
  jne .end
  cmp byte [dhcp_state],3
  jne .end
+ cmp byte [tcp_state],1
+ je .end
+ cmp byte [tcp_state],2
+ je .end
  mov byte [tcp_state],1
- mov dword [tcp_seq_num],1
+ rdtsc
+ xor eax,edx
+ mov [tcp_seq_num],eax
  mov dword [tcp_ack_num],0
+ mov dword [http_bytes],0
+ mov dword [http_stored],0
+ mov byte [tcp_elapsed],0
+ mov byte [tcp_retries],0
+ call tcp_send_syn
+.end:
+ ret
+
+tcp_send_syn:
  mov byte [tcp_flags],2
  xor ecx,ecx
  call tcp_send_segment
  inc dword [tcp_syn_sent]
-.end:
+ ret
+
+; AL elapsed RTC seconds. Bounded SYN retry and idle timeout.
+tcp_tick:
+ cmp byte [tcp_state],1
+ je .syn
+ cmp byte [tcp_state],2
+ jne .done
+ add al,[tcp_elapsed]
+ mov [tcp_elapsed],al
+ cmp al,30
+ jb .done
+ jmp .timeout
+.syn:
+ add al,[tcp_elapsed]
+ mov [tcp_elapsed],al
+ cmp al,5
+ jb .done
+ mov byte [tcp_elapsed],0
+ cmp byte [tcp_retries],3
+ jae .timeout
+ inc byte [tcp_retries]
+ call tcp_send_syn
+ jmp .done
+.timeout:
+ mov byte [tcp_state],5
+.done:
  ret
 
 ; TCP sender: flags tcp_flags; optional payload ESI, length ECX.
@@ -615,17 +708,34 @@ tcp_ack_num dd 0
 tcp_payload_len dw 0
 tcp_ip_len dw 0
 http_bytes dd 0
+HTTP_BUFFER = 20000h ; scratch RAM outside loaded kernel and stack
+http_stored dd 0
+tcp_bad_checksum dd 0
+tcp_rx_length dd 0
+tcp_rx_header dd 0
+tcp_elapsed db 0
+tcp_retries db 0
 
 sum_words:
+ ; Handles zero and odd lengths without reading outside the segment.
  push ebx
  xor eax,eax
 .loop:
+ cmp ecx,2
+ jb .tail
  movzx ebx,word [esi]
  rol bx,8
  add eax,ebx
  add esi,2
  sub ecx,2
- jnz .loop
+ jmp .loop
+.tail:
+ test ecx,ecx
+ jz .done
+ movzx ebx,byte [esi]
+ shl ebx,8
+ add eax,ebx
+.done:
  pop ebx
  ret
 
