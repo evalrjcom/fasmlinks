@@ -1,0 +1,32 @@
+name: Build bootable TextOS IMG
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  floppy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Flat Assembler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fasm gcc-multilib binutils curl qemu-system-x86
+      - name: Assemble 32-bit kernel and bootable floppy
+        run: sh build.sh
+      - name: Validate image size, boot signature, and kernel
+        run: python3 test_image.py
+      - name: Check disk image size
+        run: test "$(wc -c < textos.img)" -eq 1474560
+      - name: Boot image and verify guest BearSSL self-test
+        run: python3 test_boot.py
+      - name: Publish downloadable IMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: fasmlinks-textos-img
+          path: textos.img
+          if-no-files-found: error
+          retention-days: 30
