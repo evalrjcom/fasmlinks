@@ -1,4 +1,4 @@
-# FASM Links / TextOS 0.7.3 (experimental)
+# FASM Links / TextOS 0.7.4 (experimental)
 
 This is a 32-bit FASM bootable floppy prototype for the ne2k interface emulated by copy.sh/v86. It has a VGA text console, PCI discovery, NE2000 transmit/receive, ARP, and an incomplete DHCP/IPv4/TCP prototype.
 
@@ -62,3 +62,7 @@ The kernel exceeds the previous 32-sector limit. The bootloader, build script an
 ## 0.7.3
 
 Adds DNS transmit-submission counts, pre-IP-filter UDP port 53 counts and an experimental DNS-over-TCP fallback to 1.1.1.1:53 after four UDP attempts. Uses a bounded 4096-byte scratch buffer at 0x30000 and the existing single TCP connection. Direct first A answer only; full TCP close/retransmission, CNAME, interactive URL input and TLS remain incomplete. Press 8 to start, G to refresh; DNS state 4 means TCP fallback. C retains the known HTTP regression probe. Runtime verification pending.
+
+## 0.7.4
+
+Fix HTTP regression: preserve captured HTTP during DNS TCP fallback; C cancels pending DNS and restarts the known Cloudflare HTTP probe. Guard DNS fallback against replacing active TCP tuples. Show an explicit empty response message in both viewers. Runtime verification pending.

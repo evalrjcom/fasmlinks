@@ -608,10 +608,17 @@ tcp_syn_probe:
  xchg al,ah
  mov [tcp_local_port],ax
  mov dword [tcp_ack_num],0
+ ; FIX: DNS transport must not invalidate the previous HTTP response.
+ cmp word [tcp_remote_port],3500h
+ je .dns_reset
  mov dword [http_scroll],0
+ mov dword [http_page_end],0
  mov dword [http_bytes],0
  mov dword [http_stored],0
+ jmp .reset_done
+.dns_reset:
  mov dword [dns_tcp_stored],0
+.reset_done:
  mov byte [tcp_elapsed],0
  mov byte [tcp_retries],0
  call tcp_send_syn

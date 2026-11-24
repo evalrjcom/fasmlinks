@@ -88,15 +88,23 @@ dhcp_test:
  call dhcp_discover
  jmp diagnostics
 syn_test:
- ; Keep the known-good Cloudflare probe available.
+ ; FIX: manual HTTP test cancels pending DNS; do not mix connection tuples.
+ cmp byte [dhcp_state],3
+ jne network_detail
+ cmp byte [gateway_known],1
+ jne network_detail
+ mov byte [dns_state],0
  cmp byte [tcp_state],1
- je network_detail
+ je .cancel
  cmp byte [tcp_state],2
- je network_detail
- cmp byte [dns_state],1
- je network_detail
- cmp byte [dns_state],4
- je network_detail
+ jne .start
+.cancel:
+ ; Abort only our own outstanding connection before replacing its tuple.
+ mov byte [tcp_flags],14h
+ xor ecx,ecx
+ call tcp_send_segment
+.start:
+ mov byte [tcp_state],0
  mov word [tcp_remote_port],5000h
  mov dword [remote_ip],01010101h
  mov dword [http_request_ptr],http_get_request
@@ -375,6 +383,12 @@ http_view:
  mov edi,0xb8000+160*6
  mov esi,HTTP_BUFFER
  mov ecx,[http_stored]
+ test ecx,ecx
+ jnz .has_data
+ mov esi,http_empty_msg
+ call print
+ jmp main
+.has_data:
  mov eax,[http_scroll]
  cmp eax,ecx
  jae .done
@@ -521,6 +535,11 @@ text_view:
  call print
  mov esi,HTTP_BUFFER
  mov ecx,[http_stored]
+ test ecx,ecx
+ jnz .find_body
+ mov esi,http_empty_msg
+ call print
+ jmp main
  ; Find the exact HTTP header/body separator within captured bytes.
 .find_body:
  cmp ecx,4
@@ -713,9 +732,10 @@ print:
  jmp .next
 .done:
  ret
-header db 'FASM TEXTOS 0.7.3 |  32-bit protected mode',0
+header db 'FASM TEXTOS 0.7.4 |  32-bit protected mode',0
 menu db '1 Home 2 Sites 3 About 4 DHCP 5 TCP 6 ARP 7 Raw 8 DNS 9 Text',0
 footer db 'C Cloudflare | 8 CERN DNS/HTTP | 7 Raw | 9 Text | N Next P First | 5 Status',0
+http_empty_msg db 10,'No HTTP response captured. Press C, then 5 for status and 7 to refresh.',0
 http_title db 'HTTP raw response (7 refresh, N next, P first)',0
 arp_detail_title db 'Gateway ARP diagnostics (6 refresh, A retry)',0
 arp_detail_local db 10,'Local IP: ',0
@@ -784,7 +804,7 @@ tx_text db 'Diagnostic Ethernet frame queued for transmission.',0
 rx_text db 'Receive ring polled. Counters are internal (no HTTP yet).',0
 home_text db 'HOME  |  DuckDuckGo search',10,10,'https://lite.duckduckgo.com/lite/',10,10,'Search is not connected yet.',0
 sites_text db 'TEXT-FRIENDLY WEBSITES',10,10,'https://lite.duckduckgo.com/lite/',10,'https://www.wikipedia.org/',10,'https://www.gutenberg.org/',10,'https://text.npr.org/',10,'https://info.cern.ch/',10,'https://example.com/',0
-about_text db 'FASM TextOS 0.7.3 - RX validation and DHCP trace',10,10,'Experimental DNS A lookup and HTTP; no TLS yet.',0
+about_text db 'FASM TextOS 0.7.4 - RX validation and DHCP trace',10,10,'Experimental DNS A lookup and HTTP; no TLS yet.',0
 
 include 'net.asm'
 include 'ip.asm'

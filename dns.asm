@@ -296,6 +296,11 @@ dns_tick:
  call dns_send
  ret
 .tcp_fallback:
+ ; FIX: never replace the tuple of an active TCP connection.
+ cmp byte [tcp_state],1
+ je .timeout
+ cmp byte [tcp_state],2
+ je .timeout
  ; Standard DNS over TCP, port 53, with length-prefixed query.
  mov byte [dns_state],4
  mov dword [remote_ip],01010101h
