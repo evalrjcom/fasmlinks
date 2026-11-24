@@ -11,5 +11,7 @@ assert len(kernel) <= 32 * 512, 'bootloader can load only 32 kernel sectors'
 assert len(image) == 1440 * 1024, 'unexpected floppy geometry'
 assert image[:512] == boot, 'boot sector not written correctly'
 assert image[512:512 + len(kernel)] == kernel, 'kernel not written at LBA1'
-assert b'FASM TEXTOS 0.6.5' in kernel, 'wrong build version'
+# Keep the expected release version explicit: do not bypass version validation.
+expected_version = b'FASM TEXTOS 0.6.6 |'
+assert expected_version in kernel, f'wrong build version: expected {expected_version!r}'
 print('PASS: boot signature, sizes, image content, kernel version')
