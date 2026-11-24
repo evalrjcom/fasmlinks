@@ -512,8 +512,8 @@ print:
 header db 'FASM TEXTOS 0.7.0 |  32-bit protected mode',0
 menu db '[1] Home [2] Sites [3] About [4] DHCP trace [5] IP/TCP [6] ARP [7] HTTP',0
 footer db '1 Home 2 Sites 3 About 4 Trace 5 IP/TCP 6 ARP 7 HTTP D DHCP A ARP C TCP T TX R RX',0
-arp_http_title db 'HTTP raw response (7 refresh; first screen only)',0
-detail_title db 'Gateway ARP diagnostics (6 refresh, A retry)',0
+http_title db 'HTTP raw response (7 refresh; first screen only)',0
+arp_detail_title db 'Gateway ARP diagnostics (6 refresh, A retry)',0
 arp_detail_local db 10,'Local IP: ',0
 arp_detail_gateway db 10,'Gateway IP: ',0
 arp_detail_seen db 10,'ARP frames seen: 0x',0
