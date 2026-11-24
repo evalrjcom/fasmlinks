@@ -15,6 +15,7 @@ ip_receive:
  ret
 
 arp_receive:
+ inc dword [arp_frames_seen] ; NEW: includes rejected ARP frames
  ; FIX: validate full Ethernet/ARP header before learning or replying.
  cmp word [net_rx_length],46
  jb .end
@@ -24,6 +25,13 @@ arp_receive:
  jne .end
  cmp word [net_rx_buffer+18],0406h
  jne .end
+ mov eax,dword [net_rx_buffer+28]
+ mov [arp_last_sender],eax
+ mov eax,dword [net_rx_buffer+38]
+ mov [arp_last_target],eax
+ movzx eax,word [net_rx_buffer+20]
+ xchg al,ah
+ mov [arp_last_opcode],eax
  cmp dword [local_ip],0
  je .end
  inc dword [arp_rx_total]
@@ -352,6 +360,7 @@ tcp_receive:
 
 ; Send ARP request for gateway IP, if configured.
 arp_gateway:
+ mov byte [arp_retry_elapsed],0 ; NEW: restart timer on each attempt
  cmp byte [net_present],1
  jne .end
  cmp dword [local_ip],0
@@ -389,22 +398,77 @@ arp_gateway:
 ; Capture gateway ARP replies.
 ; Called from receive routine for ARP frames before normal request processing.
 arp_learn:
- cmp word [net_rx_buffer+20],0x0200
- jne .end
+ ; NEW: learn the gateway from a directed request or reply only.
+ ; Ethernet source must equal ARP sender MAC, with valid unicast MAC.
+ cmp dword [gateway_ip],0
+ je .end
  mov eax,dword [net_rx_buffer+28]
  cmp eax,dword [gateway_ip]
  jne .end
+ inc dword [arp_gateway_seen]
  mov eax,dword [net_rx_buffer+38]
- cmp eax,dword [local_ip] ; FIX: gateway reply must target our address
- jne .end
+ cmp eax,dword [local_ip]
+ jne .reject
+ cmp word [net_rx_buffer+20],0100h
+ je .check_sender
+ cmp word [net_rx_buffer+20],0200h
+ jne .reject
+ ; Replies must explicitly name this guest's hardware address.
+ mov esi,net_rx_buffer+32
+ mov edi,net_mac
+ mov ecx,6
+ repe cmpsb
+ jne .reject
+.check_sender:
+ test byte [net_rx_buffer+22],1
+ jnz .reject
+ mov eax,dword [net_rx_buffer+22]
+ movzx edx,word [net_rx_buffer+26]
+ or eax,edx
+ jz .reject
+ mov esi,net_rx_buffer+6
+ mov edi,net_rx_buffer+22
+ mov ecx,6
+ repe cmpsb
+ jne .reject
  mov esi,net_rx_buffer+22
  mov edi,gateway_mac
  mov ecx,6
  rep movsb
  mov byte [gateway_known],1
  inc dword [arp_gateway_learned]
+ ret
+.reject:
+ inc dword [arp_gateway_rejected]
 .end:
  ret
+
+; NEW: AL is elapsed RTC seconds, provided by dhcp_tick.
+; Retry unresolved gateway at three-second intervals without blocking.
+arp_tick:
+ cmp byte [dhcp_state],3
+ jne .done
+ cmp byte [gateway_known],1
+ je .done
+ cmp dword [gateway_ip],0
+ je .done
+ add al,[arp_retry_elapsed]
+ cmp al,3
+ jae .retry
+ mov [arp_retry_elapsed],al
+ ret
+.retry:
+ call arp_gateway
+.done:
+ ret
+
+arp_retry_elapsed db 0
+arp_frames_seen dd 0
+arp_last_sender dd 0
+arp_last_target dd 0
+arp_last_opcode dd 0
+arp_gateway_seen dd 0
+arp_gateway_rejected dd 0
 
 tcp_syn_probe:
  cmp byte [gateway_known],1

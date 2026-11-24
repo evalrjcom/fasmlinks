@@ -1,4 +1,4 @@
-# FASM Links / TextOS 0.6.7 (experimental)
+# FASM Links / TextOS 0.6.8 (experimental)
 
 This is a 32-bit FASM bootable floppy prototype for the ne2k interface emulated by copy.sh/v86. It has a VGA text console, PCI discovery, NE2000 transmit/receive, ARP, and an incomplete DHCP/IPv4/TCP prototype.
 
@@ -34,3 +34,7 @@ The 0.6.6 kernel displays raw little-endian hexadecimal IPv4 values followed by 
 ## 0.6.7
 
 Preserves the 0.6.6 TX-memory repair. Adds automatic startup acquisition, RTC-driven retries capped at 32 seconds, per-exchange transaction IDs, staged DHCP options, selected-server ACK/NAK validation, and a separate IP/TCP diagnostics page. User testing of audited 0.6.6 showed two successful OFFER/REQUEST/ACK exchanges; 0.6.7 needs its own runtime test. TCP is experimental and HTTPS unimplemented.
+
+## 0.6.8
+
+User runtime test of 0.6.7 confirmed DHCP BOUND with gateway/DNS/subnet and a 900-second lease. Gateway ARP remained unresolved after a single attempt. This build retries unresolved gateway ARP every three RTC seconds, validates directed ARP requests/replies and source MAC consistency, and adds page 6 ARP diagnostics. Press A to retry and show ARP diagnostics; C shows IP/TCP status. No live verification of 0.6.8 yet. Lease renewal/expiry and full TCP remain outstanding.

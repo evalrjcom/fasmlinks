@@ -446,7 +446,10 @@ dhcp_tick:
  test al,al
  jz .done
  cmp byte [dhcp_state],3
- je .done
+ jne .acquiring
+ call arp_tick ; NEW: keep gateway discovery alive after DHCP ACK
+ jmp .done
+.acquiring:
  cmp byte [dhcp_state],0
  je .done
  add al,[dhcp_retry_elapsed]

@@ -40,6 +40,8 @@ main:
  je network
  cmp al,0x06
  je network_detail
+ cmp al,0x07
+ je arp_detail
  cmp al,0x14
  je tx_test
  cmp al,0x13
@@ -69,13 +71,13 @@ rx_test:
  jmp diagnostics
 arp_test:
  call arp_gateway
- jmp diagnostics
+ jmp arp_detail
 dhcp_test:
  call dhcp_discover
  jmp diagnostics
 syn_test:
  call tcp_syn_probe
- jmp diagnostics
+ jmp network_detail
 network:
  jmp diagnostics
 diagnostics:
@@ -237,6 +239,97 @@ network_detail:
  mov eax,[net_rx_errors]
  call print_hex32
  jmp main
+arp_detail:
+ mov edi,0xb8000+160*4
+ mov ecx,80*20
+ mov ax,0x1f20
+ rep stosw
+ mov edi,0xb8000+160*4
+ mov esi,arp_detail_title
+ call print
+ mov esi,arp_detail_local
+ call print
+ mov eax,dword [local_ip]
+ call print_ipv4
+ mov esi,arp_detail_gateway
+ call print
+ mov eax,dword [gateway_ip]
+ call print_ipv4
+ mov esi,diag_gateway
+ call print
+ movzx eax,byte [gateway_known]
+ call print_hex32
+ mov esi,diag_arp_tx
+ call print
+ mov eax,[arp_tx_request]
+ call print_hex32
+ mov esi,arp_detail_seen
+ call print
+ mov eax,[arp_frames_seen]
+ call print_hex32
+ mov esi,diag_arp_req
+ call print
+ mov eax,[arp_rx_request]
+ call print_hex32
+ mov esi,diag_arp_rep
+ call print
+ mov eax,[arp_rx_reply]
+ call print_hex32
+ mov esi,arp_detail_gwseen
+ call print
+ mov eax,[arp_gateway_seen]
+ call print_hex32
+ mov esi,arp_detail_reject
+ call print
+ mov eax,[arp_gateway_rejected]
+ call print_hex32
+ mov esi,arp_detail_learned
+ call print
+ mov eax,[arp_gateway_learned]
+ call print_hex32
+ mov esi,arp_detail_sender
+ call print
+ mov eax,[arp_last_sender]
+ call print_ipv4
+ mov esi,arp_detail_target
+ call print
+ mov eax,[arp_last_target]
+ call print_ipv4
+ mov esi,arp_detail_op
+ call print
+ mov eax,[arp_last_opcode]
+ call print_hex32
+ mov esi,arp_detail_mac
+ call print
+ mov esi,net_mac
+ call print_mac
+ mov esi,diag_gateway_mac
+ call print
+ mov esi,gateway_mac
+ call print_mac
+ jmp main
+
+; NEW: six MAC octets, preserving the VGA destination cursor.
+print_mac:
+ push eax
+ push ecx
+ push esi
+ mov ecx,6
+.next:
+ movzx eax,byte [esi]
+ inc esi
+ call print_hex8
+ dec ecx
+ jz .done
+ mov ax,01f3ah
+ stosw
+ jmp .next
+.done:
+ pop esi
+ pop ecx
+ pop eax
+ ret
+
 ; FIX 0.6.6: raw DWORD has octets in memory order (low byte first).
 ; Display a space and four decimal octets. EDI points at VGA text memory.
 print_ipv4:
@@ -358,9 +451,20 @@ print:
  jmp .next
 .done:
  ret
-header db 'FASM TEXTOS 0.6.7 |  32-bit protected mode',0
-menu db '[1] Home [2] Sites [3] About [4] DHCP trace [5] IP/TCP',0
-footer db '1 Home 2 Sites 3 About 4 Trace 5 IP/TCP D DHCP A ARP C TCP T TX R RX',0
+header db 'FASM TEXTOS 0.6.8 |  32-bit protected mode',0
+menu db '[1] Home [2] Sites [3] About [4] DHCP trace [5] IP/TCP [6] ARP',0
+footer db '1 Home 2 Sites 3 About 4 Trace 5 IP/TCP 6 ARP D DHCP A ARP C TCP T TX R RX',0
+arp_detail_title db 'Gateway ARP diagnostics (6 refresh, A retry)',0
+arp_detail_local db 10,'Local IP: ',0
+arp_detail_gateway db 10,'Gateway IP: ',0
+arp_detail_seen db 10,'ARP frames seen: 0x',0
+arp_detail_gwseen db 10,'Gateway sender seen: 0x',0
+arp_detail_reject db 10,'Gateway rejected: 0x',0
+arp_detail_learned db 10,'Gateway learned: 0x',0
+arp_detail_sender db 10,'Last ARP sender IP: ',0
+arp_detail_target db 10,'Last ARP target IP: ',0
+arp_detail_op db 10,'Last ARP opcode: 0x',0
+arp_detail_mac db 10,'Local MAC: ',0
 detail_title db 'IP configuration / TCP diagnostics (press 5 to refresh)',0
 detail_state db 10,'DHCP state (3=BOUND): 0x',0
 detail_local db 10,'Local IP: ',0
@@ -415,7 +519,7 @@ tx_text db 'Diagnostic Ethernet frame queued for transmission.',0
 rx_text db 'Receive ring polled. Counters are internal (no HTTP yet).',0
 home_text db 'HOME  |  DuckDuckGo search',10,10,'https://lite.duckduckgo.com/lite/',10,10,'Search is not connected yet.',0
 sites_text db 'TEXT-FRIENDLY WEBSITES',10,10,'https://lite.duckduckgo.com/lite/',10,'https://www.wikipedia.org/',10,'https://www.gutenberg.org/',10,'https://text.npr.org/',10,'https://info.cern.ch/',10,'https://example.com/',0
-about_text db 'FASM TextOS 0.6.7 - RX validation and DHCP trace',10,10,'No DNS, TLS, or reliable general-purpose TCP yet.',0
+about_text db 'FASM TextOS 0.6.8 - RX validation and DHCP trace',10,10,'No DNS, TLS, or reliable general-purpose TCP yet.',0
 
 include 'net.asm'
 include 'ip.asm'
