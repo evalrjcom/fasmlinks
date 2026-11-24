@@ -1,4 +1,4 @@
-# FASM Links / TextOS 0.7.6 (experimental)
+# FASM Links / TextOS 0.7.7 (experimental)
 
 This is a 32-bit FASM bootable floppy prototype for the ne2k interface emulated by copy.sh/v86. It has a VGA text console, PCI discovery, NE2000 transmit/receive, ARP, and an incomplete DHCP/IPv4/TCP prototype.
 
@@ -74,3 +74,7 @@ F2 opens a bounded interactive IPv4/path editor for remote HTTP port 80. Enter s
 ## 0.7.6
 
 F2 accepts lowercase hostname/path or numeric IPv4/path with optional http:// (Shift+semicolon for colon). Builds a validated dynamic DNS question and retains the entered Host and path through UDP/TCP fallback. F5 shows the HTTP status and Location header without auto-following. Direct A answers only; DNS transport still unverified, CNAME, full HTML layout, links, DHCP renewal and TLS pending. Runtime verification pending.
+
+## 0.7.7
+
+Adds bounded DNS compression decoding and owner-matched CNAME chains within a single answer message (eight hops maximum), plus a CNAME diagnostic count. Text preview adds simple block breaks and amp/lt/gt decoding. DNS transport remains unverified; aliases requiring a separate query, full HTML parsing, automatic redirects, TLS and DHCP renewal remain pending. Existing C HTTP regression probe retained.

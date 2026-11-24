@@ -213,6 +213,8 @@ dns_receive:
 
 ; ESI = DNS message base; EBX = exclusive end. Shared UDP/TCP parser.
 dns_parse_message:
+ mov [dns_msg_base],esi
+ mov [dns_msg_end],ebx
  mov eax,[dns_question_len]
  lea eax,[esi+eax+12]
  cmp eax,ebx
@@ -229,8 +231,13 @@ dns_parse_message:
  jnz .failed
  cmp word [esi+4],0100h
  jne .failed
- cmp word [esi+6],0
- je .failed
+ movzx eax,word [esi+6]
+ xchg al,ah
+ test eax,eax
+ jz .failed
+ cmp eax,128
+ ja .failed
+ mov [dns_answer_count],eax
  ; Match exact question (fixed lower-case wire name).
  add esi,12
  mov edi,dns_question
@@ -238,31 +245,42 @@ dns_parse_message:
  repe cmpsb
  jne .failed
  inc dword [dns_rx]
- ; First answer must match the queried name, compressed or uncompressed.
- lea eax,[esi+2]
- cmp eax,ebx
- ja .failed
- cmp word [esi],0cc0h
- je .compressed
- mov edi,dns_question
+ ; Follow only owner-matched CNAME/A records within the answer section.
+ mov [dns_answers],esi
+ mov esi,dns_question
+ mov edi,dns_expected_name
  mov ecx,[dns_question_len]
  sub ecx,4
- lea eax,[esi+ecx]
+ rep movsb
+ mov byte [dns_chain_depth],0
+.scan_pass:
+ mov esi,[dns_answers]
+ mov eax,[dns_answer_count]
+ mov [dns_remaining],eax
+.scan_rr:
+ mov edi,dns_owner_name
+ call dns_expand_name
+ jc .failed
+ ; ESI is the first byte after encoded owner, EBX remains message end.
+ lea eax,[esi+10]
  cmp eax,ebx
  ja .failed
- repe cmpsb
- jne .failed
- jmp .record
-.compressed:
- add esi,2
-.record:
- lea eax,[esi+14]
+ movzx ecx,word [esi+8]
+ xchg cl,ch
+ lea eax,[esi+10+ecx]
  cmp eax,ebx
  ja .failed
- cmp word [esi],0100h
- jne .failed
+ mov [dns_next_rr],eax
+ mov [dns_rr_header],esi
+ mov esi,dns_owner_name
+ mov edi,dns_expected_name
+ call dns_names_equal
+ jne .next_rr
+ mov esi,[dns_rr_header]
  cmp word [esi+2],0100h
- jne .failed
+ jne .next_rr
+ cmp word [esi],0100h
+ jne .cname
  cmp word [esi+8],0400h
  jne .failed
  mov eax,dword [esi+10]
@@ -270,6 +288,27 @@ dns_parse_message:
  jz .failed
  cmp eax,0ffffffffh
  je .failed
+ jmp .found
+.cname:
+ cmp word [esi],0500h
+ jne .next_rr
+ inc byte [dns_chain_depth]
+ cmp byte [dns_chain_depth],8
+ ja .failed
+ add esi,10
+ mov edi,dns_expected_name
+ call dns_expand_name
+ jc .failed
+ cmp esi,[dns_next_rr]
+ jne .failed
+ inc dword [dns_cname_count]
+ jmp .scan_pass
+.next_rr:
+ mov esi,[dns_next_rr]
+ dec dword [dns_remaining]
+ jnz .scan_rr
+ jmp .failed
+.found:
  mov [dns_result],eax
  ; Defer new HTTP connection until the DNS TCP ACK has been sent.
  cmp byte [dns_state],4
@@ -305,6 +344,122 @@ dns_parse_message:
  ; Leave pending so timer can retry or switch resolver.
 .done:
  ret
+
+; Expand a DNS wire name into a bounded canonical wire-name buffer.
+; ESI input cursor, EDI output (256 bytes), EBX exclusive packet end.
+; Return ESI after original encoded name, CF set on malformed input.
+dns_expand_name:
+ push eax
+ push ecx
+ push edx
+ push ebp
+ xor ebp,ebp ; original continuation after first pointer
+ mov ecx,255
+ mov edx,128 ; bound compression hops and labels
+.step:
+ dec edx
+ jz .bad
+ cmp esi,[dns_msg_base]
+ jb .bad
+ cmp esi,ebx
+ jae .bad
+ movzx eax,byte [esi]
+ inc esi
+ test al,0c0h
+ jz .label
+ and al,0c0h
+ cmp al,0c0h
+ jne .bad
+ dec esi
+ lea eax,[esi+2]
+ cmp eax,ebx
+ ja .bad
+ test ebp,ebp
+ jnz .pointer
+ mov ebp,eax
+.pointer:
+ movzx eax,word [esi]
+ xchg al,ah
+ and eax,3fffh
+ add eax,[dns_msg_base]
+ cmp eax,esi ; backward pointers only, disallow loops/forward references
+ jae .bad
+ mov esi,eax
+ jmp .step
+.label:
+ test eax,eax
+ jz .finish
+ cmp eax,63
+ ja .bad
+ sub ecx,eax
+ jbe .bad
+ dec ecx
+ jz .bad
+ stosb
+ push ecx
+ mov ecx,eax
+ lea eax,[esi+ecx]
+ cmp eax,ebx
+ ja .bad_pop
+.copy:
+ lodsb
+ cmp al,'A'
+ jb .store
+ cmp al,'Z'
+ ja .store
+ or al,20h
+.store:
+ stosb
+ loop .copy
+ pop ecx
+ jmp .step
+.bad_pop:
+ pop ecx
+ jmp .bad
+.finish:
+ xor eax,eax
+ stosb
+ test ebp,ebp
+ jz .ok
+ mov esi,ebp
+.ok:
+ clc
+ jmp .exit
+.bad:
+ stc
+.exit:
+ pop ebp
+ pop edx
+ pop ecx
+ pop eax
+ ret
+
+; Compare two validated canonical wire names label by label.
+dns_names_equal:
+ movzx ecx,byte [esi]
+ cmp cl,[edi]
+ jne .done
+ test ecx,ecx
+ jz .done
+ inc esi
+ inc edi
+ repe cmpsb
+ jne .done
+ jmp dns_names_equal
+.done:
+ ret
+
+dns_msg_base dd 0
+dns_msg_end dd 0
+dns_answers dd 0
+dns_answer_count dd 0
+dns_remaining dd 0
+dns_next_rr dd 0
+dns_rr_header dd 0
+dns_chain_depth db 0
+dns_cname_count dd 0
+dns_owner_name rb 256
+dns_expected_name rb 256
 
 dns_tick:
  cmp byte [dns_state],4

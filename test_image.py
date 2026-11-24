@@ -23,6 +23,6 @@ assert len(image) == 1440 * 1024, 'unexpected floppy geometry'
 assert image[:512] == boot, 'boot sector not written correctly'
 assert image[512:512 + len(kernel)] == kernel, 'kernel not written at LBA1'
 assert not any(image[512 + len(kernel):512 + sectors * 512]), 'kernel padding must be zero'
-expected_version = b'FASM TEXTOS 0.7.6 |'
+expected_version = b'FASM TEXTOS 0.7.7 |'
 assert expected_version in kernel, f'wrong build version: expected {expected_version!r}'
 print('PASS: boot signature, sizes, image content, padding, kernel version')

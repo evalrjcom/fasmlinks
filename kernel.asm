@@ -524,6 +524,10 @@ dns_detail:
  call print
  mov eax,dword [dns_parse_bad]
  call print_hex32
+ mov esi,dns_alias_label
+ call print
+ mov eax,[dns_cname_count]
+ call print_hex32
  mov esi,label_dns_flags
  call print
  movzx eax,word [dns_flags]
@@ -675,7 +679,7 @@ text_view:
  add esi,4
  sub ecx,4
  mov edi,0xb8000+160*6
- xor ebx,ebx ; BL = inside tag
+ xor ebx,ebx ; BL = inside tag, BH = pending block break
 .loop:
  test ecx,ecx
  jz .done
@@ -683,12 +687,18 @@ text_view:
  jae .done
  lodsb
  dec ecx
+ test bl,bl
+ jnz .inside_tag
  cmp al,60
  je .tag
+ cmp al,38
+ je .entity
+ jmp .normal_text
+.inside_tag:
  cmp al,62
  je .tag_end
- test bl,bl
- jnz .loop
+ jmp .loop
+.normal_text:
  cmp al,13
  je .loop
  cmp al,10
@@ -705,10 +715,97 @@ text_view:
  jmp .loop
 .tag:
  mov bl,1
+ xor bh,bh
+ ; Recognize br, p, div, li, hr and h1..h6, open or close.
+ push esi
+ push ecx
+ cmp ecx,1
+ jb .tag_class_done
+ cmp byte [esi],'/'
+ jne .tag_class
+ inc esi
+ dec ecx
+ jz .tag_class_done
+.tag_class:
+ mov al,[esi]
+ or al,20h
+ cmp al,'p'
+ je .block
+ cmp ecx,2
+ jb .tag_class_done
+ mov ax,[esi]
+ or ax,2020h
+ cmp ax,7262h
+ je .block
+ cmp ax,7268h
+ je .block
+ cmp ax,696ch
+ je .block
+ cmp ax,6964h
+ je .block
+ cmp al,'h'
+ jne .tag_class_done
+ cmp ah,'1'
+ jb .tag_class_done
+ cmp ah,'6'
+ ja .tag_class_done
+.block:
+ mov bh,1
+.tag_class_done:
+ pop ecx
+ pop esi
  jmp .loop
 .tag_end:
- xor ebx,ebx
+ xor bl,bl
+ test bh,bh
+ jz .loop
+ xor bh,bh
+ ; Advance only if current row contains text; preserve footer.
+ push ecx
+ mov eax,edi
+ sub eax,0xb8000
+ xor edx,edx
+ mov ecx,160
+ div ecx
+ test edx,edx
+ jz .line_done
+ inc eax
+ imul eax,160
+ lea edi,[eax+0xb8000]
+.line_done:
+ pop ecx
  jmp .loop
+.entity:
+ ; Small safe named-entity subset; unknown entities remain literal.
+ cmp ecx,4
+ jb .short_entity
+ cmp dword [esi],3b706d61h ; amp;
+ je .amp
+.short_entity:
+ cmp ecx,3
+ jb .literal_amp
+ cmp word [esi],746ch ; lt
+ jne .gt
+ cmp byte [esi+2],';'
+ jne .literal_amp
+ mov al,60
+ jmp .entity3
+.gt:
+ cmp word [esi],7467h
+ jne .literal_amp
+ cmp byte [esi+2],';'
+ jne .literal_amp
+ mov al,62
+.entity3:
+ add esi,3
+ sub ecx,3
+ jmp .write
+.amp:
+ add esi,4
+ sub ecx,4
+.literal_amp:
+ mov al,38
+ jmp .write
 .done:
  jmp main
 
@@ -721,6 +818,7 @@ label_dns_tuple_bad db 10,'Wrong server/port: ',0
 label_dns_id_bad db 10,'Wrong ID: ',0
 label_dns_checksum_bad db 10,'Bad UDP checksum: ',0
 label_dns_parse_bad db 10,'Parser rejected: ',0
+dns_alias_label db 10,'CNAME hops followed: 0x',0
 label_dns_flags db 10,'Last DNS flags: ',0
 dns_title db 'DNS CERN: 8 start/retry, G refresh only',0
 dns_state_label db 10,'DNS: 0 idle 1 UDP 2 resolved 3 failed 4 TCP: 0x',0
@@ -854,7 +952,7 @@ print:
  jmp .next
 .done:
  ret
-header db 'FASM TEXTOS 0.7.6 |  32-bit protected mode',0
+header db 'FASM TEXTOS 0.7.7 |  32-bit protected mode',0
 menu db '1 Home 2 Sites 3 About 4 DHCP 5 TCP 6 ARP 7 Raw 8 DNS 9 Text',0
 footer db 'F2 URL | F5 HTTP status | C Test | 8 DNS | 7 Raw | 9 Text | N/P Pages',0
 http_empty_msg db 10,'No HTTP response captured. Press C, then 5 for status and 7 to refresh.',0
@@ -926,7 +1024,7 @@ tx_text db 'Diagnostic Ethernet frame queued for transmission.',0
 rx_text db 'Receive ring polled. Counters are internal (no HTTP yet).',0
 home_text db 'HOME  |  DuckDuckGo search',10,10,'https://lite.duckduckgo.com/lite/',10,10,'Search is not connected yet.',0
 sites_text db 'TEXT-FRIENDLY WEBSITES',10,10,'https://lite.duckduckgo.com/lite/',10,'https://www.wikipedia.org/',10,'https://www.gutenberg.org/',10,'https://text.npr.org/',10,'https://info.cern.ch/',10,'https://example.com/',0
-about_text db 'FASM TextOS 0.7.6 - RX validation and DHCP trace',10,10,'Experimental DNS A lookup and HTTP; no TLS yet.',0
+about_text db 'FASM TextOS 0.7.7 - RX validation and DHCP trace',10,10,'Experimental DNS A lookup and HTTP; no TLS yet.',0
 
 include 'net.asm'
 include 'ip.asm'
