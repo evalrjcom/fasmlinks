@@ -16,7 +16,10 @@ dhcp_discover:
  mov dword [dhcp_server_ip],0
  mov dword [dhcp_router_ip],0
  mov dword [dhcp_dns_ip],0
+ mov dword [dhcp_subnet],0 ; FIX: clear previous lease metadata
+ mov dword [dhcp_lease_seconds],0
  mov byte [gateway_known],0
+ mov byte [tcp_state],0
  mov byte [dhcp_message_type],1
  inc dword [dhcp_discover_tx]
  call dhcp_send
@@ -102,7 +105,7 @@ dhcp_send:
  pop esi
  mov byte [edi],57
  mov byte [edi+1],2
- mov word [edi+2],05DCh
+ mov word [edi+2],0DC05h ; FIX: wire bytes 05 DC = 1500 (big endian)
  add edi,4
  mov byte [edi],55
  mov byte [edi+1],5
@@ -252,6 +255,8 @@ udp_receive:
  jne .dns
  cmp ecx,4
  jb .bad
+ test ecx,3 ; FIX: IPv4 address list length is a multiple of four
+ jnz .bad
  mov eax,[esi]
  mov [dhcp_router_ip],eax
  jmp .next
@@ -260,6 +265,8 @@ udp_receive:
  jne .subnet
  cmp ecx,4
  jb .bad
+ test ecx,3
+ jnz .bad
  mov eax,[esi]
  mov [dhcp_dns_ip],eax
  jmp .next
@@ -318,6 +325,8 @@ udp_receive:
  jmp .done
 .nak:
  cmp dl,6
+ jne .done
+ cmp byte [dhcp_state],2 ; FIX: ignore unsolicited NAK outside REQUESTING
  jne .done
  inc dword [dhcp_nak_rx]
  mov byte [dhcp_state],4

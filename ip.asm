@@ -3,15 +3,29 @@
 ; No DHCP, DNS, retransmission, TLS, or general-purpose TCP stack yet.
 
 ip_receive:
+ cmp word [net_rx_length],18 ; FIX: Ethernet header before EtherType
+ jb .short
  mov esi,net_rx_buffer
  mov ax,[esi+12]
  cmp ax,0x0608
  je arp_receive
  cmp ax,0x0008
  je ipv4_receive
+.short:
  ret
 
 arp_receive:
+ ; FIX: validate full Ethernet/ARP header before learning or replying.
+ cmp word [net_rx_length],46
+ jb .end
+ cmp word [net_rx_buffer+14],0100h
+ jne .end
+ cmp word [net_rx_buffer+16],0008h
+ jne .end
+ cmp word [net_rx_buffer+18],0406h
+ jne .end
+ cmp dword [local_ip],0
+ je .end
  inc dword [arp_rx_total]
  cmp word [net_rx_buffer+20],0x0100
  jne .not_request
@@ -63,7 +77,7 @@ arp_receive:
  mov eax,dword [net_rx_buffer+28]
  mov [tx_frame+38],eax
  mov esi,tx_frame
- mov ecx,60
+ mov ecx,42 ; FIX: sender zero-pads Ethernet minimum length
  call ne_send_buffer
 .end:
  ret
@@ -152,6 +166,13 @@ ipv4_receive:
  ret
 
 icmp_receive:
+ cmp edx,28 ; FIX: before reading ICMP type/code
+ jb .end
+ cmp dword [local_ip],0
+ je .end
+ mov eax,[net_rx_buffer+30]
+ cmp eax,dword [local_ip] ; no broadcast echo responses
+ jne .end
  mov esi,net_rx_buffer
  cmp byte [esi+34],8
  jne .end
@@ -234,6 +255,20 @@ checksum:
  ret
 
 tcp_receive:
+ ; FIX: reject short TCP headers and traffic not addressed to our IP.
+ cmp edx,40
+ jb .end
+ movzx eax,byte [net_rx_buffer+46]
+ shr eax,4
+ cmp eax,5
+ jb .end
+ shl eax,2
+ add eax,20
+ cmp eax,edx
+ ja .end
+ mov eax,[net_rx_buffer+30]
+ cmp eax,dword [local_ip]
+ jne .end
  inc dword [tcp_packets]
  mov al,[net_rx_buffer+47]
  mov [tcp_last_flags],al
@@ -268,6 +303,7 @@ tcp_receive:
  mov dword [tcp_seq_num],2
  mov byte [tcp_state],2
  mov byte [tcp_flags],0x10
+ xor ecx,ecx ; FIX: ACK-only segment has no payload
  call tcp_send_segment
  ; send GET after ACK
  mov byte [tcp_flags],0x18
@@ -301,12 +337,14 @@ tcp_receive:
  add dword [tcp_ack_num],ecx
  add dword [http_bytes],ecx
  mov byte [tcp_flags],0x10
+ xor ecx,ecx ; FIX: ACK-only segment has no payload
  call tcp_send_segment
 .check_fin:
  test byte [net_rx_buffer+47],1
  jz .end
  inc dword [tcp_ack_num]
  mov byte [tcp_flags],0x10
+ xor ecx,ecx ; FIX: ACK-only segment has no payload
  call tcp_send_segment
  mov byte [tcp_state],3
 .end:
@@ -316,6 +354,10 @@ tcp_receive:
 arp_gateway:
  cmp byte [net_present],1
  jne .end
+ cmp dword [local_ip],0
+ je .end
+ cmp dword [gateway_ip],0
+ je .end
  mov edi,tx_frame
  mov ecx,6
  mov al,0xff
@@ -338,7 +380,7 @@ arp_gateway:
  mov eax,dword [gateway_ip]
  mov [tx_frame+38],eax
  mov esi,tx_frame
- mov ecx,60
+ mov ecx,42 ; FIX: sender pads safely
  call ne_send_buffer
  inc dword [arp_tx_request]
 .end:
@@ -351,6 +393,9 @@ arp_learn:
  jne .end
  mov eax,dword [net_rx_buffer+28]
  cmp eax,dword [gateway_ip]
+ jne .end
+ mov eax,[net_rx_buffer+38]
+ cmp eax,dword [local_ip] ; FIX: gateway reply must target our address
  jne .end
  mov esi,net_rx_buffer+22
  mov edi,gateway_mac
@@ -380,6 +425,8 @@ tcp_syn_probe:
 ; No retransmission or out-of-order reassembly in this prototype.
 tcp_send_segment:
  pushad
+ cmp ecx,1460 ; FIX: bounded TCP payload for 1500-byte MTU
+ ja .abort
  mov [tcp_payload_len],cx
  mov edi,tx_frame
  mov esi,gateway_mac
@@ -444,7 +491,7 @@ tcp_send_segment:
  ; sum_words only supports even lengths (HTTP GET length padded if odd)
  test ecx,1
  jz .even
- mov byte [tx_frame+54+http_get_end-http_get_request],0
+ mov byte [esi+ecx],0 ; FIX: pad checksum at actual segment end
  inc ecx
 .even:
  call sum_words
@@ -463,6 +510,7 @@ tcp_send_segment:
  add ecx,14
  mov esi,tx_frame
  call ne_send_buffer
+.abort:
  popad
  ret
 
@@ -489,8 +537,8 @@ sum_words:
  pop ebx
  ret
 
-local_ip db 10,0,2,15
-gateway_ip db 10,0,2,2
+local_ip db 0,0,0,0 ; FIX: unconfigured until DHCP ACK
+gateway_ip db 0,0,0,0
 remote_ip db 1,1,1,1
 gateway_mac rb 6
 gateway_known db 0

@@ -3,6 +3,7 @@ use16
 org 0x7c00
 start:
  cli
+ cld ; FIX: BIOS does not guarantee forward string operations
  xor ax,ax
  mov ds,ax
  mov es,ax

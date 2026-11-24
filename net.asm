@@ -30,15 +30,17 @@ net_probe:
  and eax,0xFFFFFFFC
  test ax,ax
  jz .no_bar
+ cmp eax,0ffe0h ; FIX: require a representable I/O window including offset 1Fh
+ ja .no_bar
  mov [net_port],ax
  mov eax,[pci_cfg_addr]
  add eax,4
  mov dx,0xCF8
  out dx,eax
  mov dx,0xCFC
- in eax,dx
- or eax,1
- out dx,eax
+ in ax,dx
+ or ax,1
+ out dx,ax ; FIX: do not write PCI status W1C bits
  ; Check whether the reset port produces an NE2000 reset-complete flag.
  mov dx,[net_port]
  add dx,0x1F
@@ -103,13 +105,13 @@ ne_init:
  mov al,2               ; TCR internal loopback
  call ne_out
  mov bl,1
- mov al,0x40            ; RX ring start
+ mov al,0x46            ; FIX: RX starts after six TX pages 40h..45h
  call ne_out
  mov bl,2
  mov al,0x80            ; RX ring end
  call ne_out
  mov bl,3
- mov al,0x40
+ mov al,0x46
  call ne_out
  mov bl,0x0f
  xor al,al
@@ -117,20 +119,20 @@ ne_init:
  mov bl,7
  mov al,0xff
  call ne_out
- ; Page 1: current page and physical address from fixed locally-administered MAC
+ ; FIX: preserve v86's assigned MAC; the backend may route by this address.
  mov bl,0
  mov al,0x61
  call ne_out
- mov esi,net_mac
+ mov edi,net_mac
  mov ecx,6
  mov bl,1
 .mac:
- lodsb
- call ne_out
+ call ne_in
+ stosb
  inc bl
  loop .mac
  mov bl,7
- mov al,0x41
+ mov al,0x47
  call ne_out
  mov bl,8
  mov ecx,8
@@ -154,59 +156,26 @@ ne_init:
  call ne_out
  ret
 
-; Send 60 byte diagnostic Ethernet frame. Caller must ensure adapter detected.
+; FIX: route diagnostic frames through the same validated transmit path.
 ne_send:
- ; remote DMA write: 60 bytes at page 0x20
- mov bl,0
- mov al,0x22
- call ne_out
- mov bl,0x08
- xor al,al
- call ne_out
- mov bl,0x09
- mov al,0x20
- call ne_out
- mov bl,0x0a
- mov al,60
- call ne_out
- mov bl,0x0b
- xor al,al
- call ne_out
- mov bl,0
- mov al,0x12
- call ne_out
- mov dx,[net_port]
- add dx,0x10
+ cmp byte [net_present],1
+ jne .done
+ mov esi,net_mac
+ mov edi,net_frame+6
+ mov ecx,6
+ rep movsb
  mov esi,net_frame
- mov ecx,30
-.tx_words:
- lodsw
- out dx,ax
- loop .tx_words
- mov bl,7
- mov al,0x40
- call ne_out
- mov bl,4
- mov al,0x20
- call ne_out
- mov bl,5
- mov al,60
- call ne_out
- mov bl,6
- xor al,al
- call ne_out
- mov bl,0
- mov al,0x26
- call ne_out
- inc dword [net_tx_count]
+ mov ecx,60
+ call ne_send_buffer
+.done:
  ret
 
 ; Poll receive ring: read CURR on page 1, compare BNRY+1, then
 ; remote-DMA read 4-byte packet header and payload into 1600-byte buffer.
 ; This is a bounded single-frame poll, intended for repeated calls.
 ne_poll:
- cmp word [net_port],0
- je .done
+ cmp byte [net_present],1
+ jne .done
  mov bl,0
  mov al,0x62
  call ne_out
@@ -221,7 +190,7 @@ ne_poll:
  inc al
  cmp al,0x80
  jb .page_ok
- mov al,0x40
+ mov al,0x46
 .page_ok:
  cmp al,[net_current]
  je .done
@@ -250,14 +219,20 @@ ne_poll:
  in ax,dx
  mov [net_rx_length],ax
  ; Reject corrupt ring headers and avoid buffer overrun
- cmp byte [net_rx_next],0x40
+ cmp byte [net_rx_next],0x46
  jb .recover
  cmp byte [net_rx_next],0x80
  jae .recover
- cmp word [net_rx_length],4
+ ; FIX: require a complete Ethernet header and successful RX status.
+ cmp word [net_rx_length],18
  jb .recover
- cmp word [net_rx_length],1604
+ cmp word [net_rx_length],1522
  ja .recover
+ test byte [net_rx_status],1
+ jz .recover
+ mov al,[net_rx_next]
+ cmp al,[net_rx_page]
+ je .recover
  ; DMA read packet from offset 4 (round up to even bytes)
  mov bl,8
  mov al,4
@@ -299,7 +274,7 @@ ne_poll:
 .advance:
  mov al,[net_rx_next]
  dec al
- cmp al,0x40
+ cmp al,0x46
  jae .boundary_ok
  mov al,0x7f
 .boundary_ok:
@@ -309,7 +284,7 @@ ne_poll:
  ret
 
 net_present db 0
-net_port dw 0x300
+net_port dw 0 ; FIX: no default port before PCI discovery
 net_message dd net_missing
 net_tx_count dd 0
 net_rx_count dd 0
@@ -335,16 +310,46 @@ net_frame:
 net_rx_buffer rb 1604
 
 ; Send a complete Ethernet frame from ESI with length ECX (60..1514).
-; 16-bit NE2000 remote DMA, packet buffer page 0x20.
+; 16-bit NE2000 remote DMA; FIX: packet RAM starts at page 40h.
 ne_send_buffer:
  pushad
+ cmp byte [net_present],1
+ jne .done
+ cmp ecx,14
+ jb .done
+ cmp ecx,1514
+ ja .done
+ ; FIX: pad short frames and odd DMA writes with zero, never stale bytes.
+ mov edi,net_tx_buffer
+ rep movsb
+ mov ecx,edi
+ sub ecx,net_tx_buffer
  cmp ecx,60
  jae .length_ok
  mov ecx,60
 .length_ok:
- cmp ecx,1514
- ja .done
  mov [tx_size],cx
+ lea eax,[net_tx_buffer+ecx+1]
+ cmp edi,eax
+ jae .padding_done
+.pad:
+ mov byte [edi],0
+ inc edi
+ cmp edi,eax
+ jb .pad
+.padding_done:
+ ; Wait for previous TX to finish before overwriting its packet RAM.
+ mov bl,0
+ mov ecx,100000
+.wait_tx:
+ call ne_in
+ test al,4
+ jz .tx_ready
+ loop .wait_tx
+ inc dword [net_tx_errors]
+ jmp .done
+.tx_ready:
+ mov esi,net_tx_buffer
  mov bl,0
  mov al,0x22
  call ne_out
@@ -352,7 +357,7 @@ ne_send_buffer:
  xor al,al
  call ne_out
  mov bl,9
- mov al,0x20
+ mov al,0x40 ; FIX: DMA writes to valid TX RAM
  call ne_out
  mov bl,0x0a
  mov ax,[tx_size]
@@ -361,6 +366,9 @@ ne_send_buffer:
  call ne_out
  mov bl,0x0b
  mov al,ah
+ call ne_out
+ mov bl,7
+ mov al,40h ; FIX: clear old RDC status before DMA starts
  call ne_out
  mov bl,0
  mov al,0x12
@@ -374,11 +382,21 @@ ne_send_buffer:
  lodsw
  out dx,ax
  loop .tx
+ ; FIX: confirm remote DMA completion before transmitting.
  mov bl,7
+ mov ecx,100000
+.wait_dma:
+ call ne_in
+ test al,40h
+ jnz .dma_ready
+ loop .wait_dma
+ inc dword [net_tx_errors]
+ jmp .done
+.dma_ready:
  mov al,0x40
  call ne_out
  mov bl,4
- mov al,0x20
+ mov al,0x40
  call ne_out
  mov bl,5
  mov al,byte [tx_size]
@@ -394,3 +412,5 @@ ne_send_buffer:
  popad
  ret
 tx_size dw 0
+net_tx_errors dd 0
+net_tx_buffer rb 1516

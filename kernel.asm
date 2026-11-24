@@ -2,6 +2,7 @@ format binary
 use32
 org 0x10000
 start:
+ cld ; FIX: keep LODS/STOS/MOVS direction explicit
  mov edi,0xb8000
  mov ecx,80*25
  mov ax,0x1f20
@@ -51,8 +52,8 @@ sites:
  mov esi,sites_text
  jmp show
 tx_test:
- cmp word [net_port],0
- je network
+ cmp byte [net_present],1 ; FIX: never access absent/reset-failed NIC
+ jne network
  call ne_send
  jmp diagnostics
 rx_test:

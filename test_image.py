@@ -7,7 +7,7 @@ kernel = (p / 'kernel.bin').read_bytes()
 image = (p / 'textos.img').read_bytes()
 assert len(boot) == 512, 'boot sector must be exactly 512 bytes'
 assert boot[510:512] == b'\x55\xaa', 'x86 boot-sector signature missing'
-assert len(kernel) <= 32 * 512, 'bootloader can load only 32 kernel sectors'
+assert 0 < len(kernel) <= 32 * 512, 'bootloader can load only 32 kernel sectors'
 assert len(image) == 1440 * 1024, 'unexpected floppy geometry'
 assert image[:512] == boot, 'boot sector not written correctly'
 assert image[512:512 + len(kernel)] == kernel, 'kernel not written at LBA1'
