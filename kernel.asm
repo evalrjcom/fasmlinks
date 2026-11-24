@@ -46,6 +46,8 @@ main:
  je http_view
  cmp al,0x09
  je dns_open
+ cmp al,0x22
+ je dns_detail
  cmp al,0x0a
  je text_view
  cmp al,0x31
@@ -455,6 +457,38 @@ dns_detail:
  call print
  mov eax,[dns_rx]
  call print_hex32
+ mov esi,label_dns_server
+ call print
+ mov eax,dword [dns_server]
+ call print_ipv4
+ mov esi,label_dns_seen
+ call print
+ mov eax,dword [dns_seen]
+ call print_hex32
+ mov esi,label_dns_matched
+ call print
+ mov eax,dword [dns_matched]
+ call print_hex32
+ mov esi,label_dns_tuple_bad
+ call print
+ mov eax,dword [dns_tuple_bad]
+ call print_hex32
+ mov esi,label_dns_id_bad
+ call print
+ mov eax,dword [dns_id_bad]
+ call print_hex32
+ mov esi,label_dns_checksum_bad
+ call print
+ mov eax,dword [dns_checksum_bad]
+ call print_hex32
+ mov esi,label_dns_parse_bad
+ call print
+ mov eax,dword [dns_parse_bad]
+ call print_hex32
+ mov esi,label_dns_flags
+ call print
+ movzx eax,word [dns_flags]
+ call print_hex32
  jmp main
 
 text_view:
@@ -520,7 +554,15 @@ text_view:
 
 http_scroll dd 0
 http_page_end dd 0
-dns_title db 'DNS / HTTP test: info.cern.ch (8 refresh/retry)',0
+label_dns_server db 10,'Server in use: ',0
+label_dns_seen db 10,'UDP source 53 seen: ',0
+label_dns_matched db 10,'Matching transaction: ',0
+label_dns_tuple_bad db 10,'Wrong server/port: ',0
+label_dns_id_bad db 10,'Wrong ID: ',0
+label_dns_checksum_bad db 10,'Bad UDP checksum: ',0
+label_dns_parse_bad db 10,'Parser rejected: ',0
+label_dns_flags db 10,'Last DNS flags: ',0
+dns_title db 'DNS CERN: 8 start/retry, G refresh only',0
 dns_state_label db 10,'DNS state: 0 idle,1 waiting,2 resolved,3 failed: 0x',0
 dns_address_label db 10,'Resolved IPv4: ',0
 dns_tx_label db 10,'DNS queries: 0x',0
@@ -648,7 +690,7 @@ print:
  jmp .next
 .done:
  ret
-header db 'FASM TEXTOS 0.7.1 |  32-bit protected mode',0
+header db 'FASM TEXTOS 0.7.2 |  32-bit protected mode',0
 menu db '1 Home 2 Sites 3 About 4 DHCP 5 TCP 6 ARP 7 Raw 8 DNS 9 Text',0
 footer db 'C Cloudflare | 8 CERN DNS/HTTP | 7 Raw | 9 Text | N Next P First | 5 Status',0
 http_title db 'HTTP raw response (7 refresh, N next, P first)',0
@@ -719,7 +761,7 @@ tx_text db 'Diagnostic Ethernet frame queued for transmission.',0
 rx_text db 'Receive ring polled. Counters are internal (no HTTP yet).',0
 home_text db 'HOME  |  DuckDuckGo search',10,10,'https://lite.duckduckgo.com/lite/',10,10,'Search is not connected yet.',0
 sites_text db 'TEXT-FRIENDLY WEBSITES',10,10,'https://lite.duckduckgo.com/lite/',10,'https://www.wikipedia.org/',10,'https://www.gutenberg.org/',10,'https://text.npr.org/',10,'https://info.cern.ch/',10,'https://example.com/',0
-about_text db 'FASM TextOS 0.7.1 - RX validation and DHCP trace',10,10,'Experimental DNS A lookup and HTTP; no TLS yet.',0
+about_text db 'FASM TextOS 0.7.2 - RX validation and DHCP trace',10,10,'Experimental DNS A lookup and HTTP; no TLS yet.',0
 
 include 'net.asm'
 include 'ip.asm'

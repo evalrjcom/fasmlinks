@@ -24,6 +24,9 @@ dns_start:
  xchg al,ah
  mov [dns_port],ax
  mov byte [dns_elapsed],0
+ mov byte [dns_attempt],0
+ mov eax,[dhcp_dns_ip]
+ mov [dns_server],eax
  mov dword [dns_result],0
  mov byte [dns_state],1
  call dns_send
@@ -48,7 +51,7 @@ dns_send:
  mov byte [tx_frame+23],17
  mov eax,dword [local_ip]
  mov [tx_frame+26],eax
- mov eax,[dhcp_dns_ip]
+ mov eax,[dns_server]
  mov [tx_frame+30],eax
  mov ax,[dns_port]
  mov [tx_frame+34],ax
@@ -65,7 +68,29 @@ dns_send:
  rep movsb
  mov ax,[dns_id]
  mov [tx_frame+42],ax
- ; IPv4 UDP checksum zero is permitted.
+ ; FIX: calculate UDP pseudo-header checksum, including odd tail.
+ mov esi,tx_frame+26
+ mov ecx,8
+ call sum_words
+ mov edx,eax
+ add edx,17+8+dns_query_end-dns_query
+ mov esi,tx_frame+34
+ mov ecx,8+dns_query_end-dns_query
+ call sum_words
+ add eax,edx
+ mov edx,eax
+ shr eax,16
+ and edx,0ffffh
+ add eax,edx
+ mov edx,eax
+ shr edx,16
+ add ax,dx
+ not ax
+ jnz .udp_nonzero
+ mov ax,0ffffh
+.udp_nonzero:
+ xchg al,ah
+ mov [tx_frame+40],ax
  mov esi,tx_frame+14
  mov ecx,20
  call checksum
@@ -78,29 +103,64 @@ dns_send:
  ret
 
 dns_receive:
+ inc dword [dns_seen]
  cmp byte [dns_state],1
  jne .done
  mov eax,dword [net_rx_buffer+26]
- cmp eax,[dhcp_dns_ip]
- jne .done
+ cmp eax,[dns_server]
+ jne .tuple_bad
  mov eax,dword [net_rx_buffer+30]
  cmp eax,dword [local_ip]
- jne .done
+ jne .tuple_bad
  mov ax,[dns_port]
  cmp word [net_rx_buffer+36],ax
- jne .done
+ jne .tuple_bad
+ cmp word [net_rx_buffer+38],0 ; length already bounded by IP layer
+ je .failed
+ movzx ecx,word [net_rx_buffer+38]
+ xchg cl,ch
+ cmp ecx,20 ; UDP + DNS fixed header before reading ID
+ jb .failed
  mov ax,[dns_id]
  cmp word [net_rx_buffer+42],ax
- jne .done
+ jne .id_bad
+ inc dword [dns_matched]
  movzx ecx,word [net_rx_buffer+38]
  xchg cl,ch
  cmp ecx,8+dns_query_end-dns_query
  jb .done
  lea ebx,[net_rx_buffer+34+ecx] ; exclusive UDP end
+ ; Validate nonzero UDP checksum (zero legal for IPv4).
+ cmp word [net_rx_buffer+40],0
+ je .checksum_ok
+ push ebx
+ push ecx
+ mov esi,net_rx_buffer+26
+ mov ecx,8
+ call sum_words
+ mov edx,eax
+ add edx,17
+ pop ecx
+ add edx,ecx
+ mov esi,net_rx_buffer+34
+ call sum_words
+ add eax,edx
+ mov edx,eax
+ shr eax,16
+ and edx,0ffffh
+ add eax,edx
+ mov edx,eax
+ shr edx,16
+ add ax,dx
+ pop ebx
+ cmp ax,0ffffh
+ jne .checksum_bad
+.checksum_ok:
  mov ax,word [net_rx_buffer+44]
  xchg al,ah
  test ax,8000h
  jz .done
+ mov [dns_flags],ax
  test ax,7a0fh ; unsupported opcode, truncated, or error
  jnz .failed
  cmp word [net_rx_buffer+46],0100h
@@ -152,8 +212,18 @@ dns_receive:
  mov byte [dns_state],2
  call tcp_syn_probe
  ret
+.tuple_bad:
+ inc dword [dns_tuple_bad]
+ ret
+.id_bad:
+ inc dword [dns_id_bad]
+ ret
+.checksum_bad:
+ inc dword [dns_checksum_bad]
+ ret
 .failed:
- mov byte [dns_state],3
+ inc dword [dns_parse_bad]
+ ; Leave pending so timer can retry or switch resolver.
 .done:
  ret
 
@@ -162,12 +232,33 @@ dns_tick:
  jne .done
  add al,[dns_elapsed]
  mov [dns_elapsed],al
- cmp al,8
+ cmp al,5
  jb .done
+ mov byte [dns_elapsed],0
+ inc byte [dns_attempt]
+ cmp byte [dns_attempt],4
+ jae .timeout
+ cmp byte [dns_attempt],2
+ jne .retry
+ ; Explicit fallback to public Cloudflare resolver after two local attempts.
+ mov dword [dns_server],01010101h
+.retry:
+ call dns_send
+ ret
+.timeout:
  mov byte [dns_state],3
 .done:
  ret
 
+dns_server dd 0
+dns_seen dd 0
+dns_matched dd 0
+dns_tuple_bad dd 0
+dns_id_bad dd 0
+dns_checksum_bad dd 0
+dns_parse_bad dd 0
+dns_flags dw 0
+dns_attempt db 0
 dns_state db 0
 dns_elapsed db 0
 dns_id dw 0
