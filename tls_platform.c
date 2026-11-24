@@ -47,8 +47,10 @@ static unsigned int tls_platform_probe(void){
  * Emulator implementations must be independently trusted before production use.
  */
 #ifndef HOST_TEST
+#include "trust_anchors.h"
 struct tls_mailbox { unsigned char *ptr; unsigned len; };
 static unsigned live_enabled;
+static char live_host[74];
 static int live_entropy(unsigned char seed[32])
 {
  unsigned a=1,b,c,d;
@@ -65,6 +67,34 @@ static int live_entropy(unsigned char seed[32])
  }
  return 1;
 }
+/* Guest RTC must be set to UTC. Fail closed on invalid date/time. */
+static unsigned char cmos(unsigned char reg){
+ unsigned char v; __asm__ volatile("outb %0,$0x70"::"a"(reg));__asm__ volatile("inb $0x71,%0":"=a"(v));return v;
+}
+static unsigned decode(unsigned v,int binary){return binary?v:((v>>4)*10+(v&15));}
+static unsigned rtc_days(unsigned *seconds){
+ unsigned char a[7],b[7];const unsigned char regs[7]={0,2,4,7,8,9,0x0b};
+ for(unsigned tries=0;tries<16;tries++){
+  if(cmos(0x0a)&128)continue;
+  for(unsigned i=0;i<7;i++)a[i]=cmos(regs[i]);
+  if(cmos(0x0a)&128)continue;
+  for(unsigned i=0;i<7;i++)b[i]=cmos(regs[i]);
+  if(!equal(a,b,7))continue;
+  if(!(a[6]&2))return 0;
+  int binary=(a[6]&4)!=0;
+  if(!binary){for(unsigned i=0;i<6;i++)if((a[i]&15)>9||(a[i]>>4)>9)return 0;}
+  unsigned sec=decode(a[0],binary),min=decode(a[1],binary),hour=decode(a[2],binary);
+  unsigned day=decode(a[3],binary),month=decode(a[4],binary),year=2000+decode(a[5],binary);
+  if(year<2024||year>2099||month<1||month>12||day<1||hour>23||min>59||sec>59)return 0;
+  unsigned leap=(year%4==0&&(year%100!=0||year%400==0));
+  static const unsigned char md[12]={31,28,31,30,31,30,31,31,30,31,30,31};
+  if(day>md[month-1]+(month==2?leap:0))return 0;
+  unsigned days=365*year+(year+3)/4-(year+99)/100+(year+399)/400;
+  for(unsigned i=1;i<month;i++)days+=md[i-1]+(i==2?leap:0);
+  *seconds=hour*3600+min*60+sec;return days+day-1;
+ }
+ return 0;
+}
 static void wipe(unsigned char *p,unsigned n){
  volatile unsigned char *v=p;while(n--)*v++=0;
 }
@@ -78,13 +108,19 @@ unsigned tls_dispatch(unsigned op,struct tls_mailbox *m,unsigned count)
   unsigned char seed[32];
   live_enabled=0;
   if(!live_entropy(seed)){wipe(seed,sizeof seed);return 0xBAD00101u;}
-  /* Reinitialize the entire client, discarding the offline fixture PRNG. */
-  br_ssl_client_init_full(&test_client,&test_x509,0,0);
+  /* No application bytes until BearSSL has authenticated the server. */
+  if(!m->ptr||!m->len||m->len>=sizeof live_host||!TAs_NUM){wipe(seed,sizeof seed);return 0xBAD00108u;}
+  for(unsigned i=0;i<m->len;i++)live_host[i]=(char)m->ptr[i];
+  live_host[m->len]=0;
+  unsigned seconds,days=rtc_days(&seconds);
+  if(!days){wipe(seed,sizeof seed);return 0xBAD00109u;}
+  br_ssl_client_init_full(&test_client,&test_x509,TAs,TAs_NUM);
+  br_x509_minimal_set_time(&test_x509,days,seconds);
   br_ssl_engine_set_versions(e,BR_TLS12,BR_TLS12);
   br_ssl_engine_set_buffer(e,test_buffer,sizeof test_buffer,1);
   br_ssl_engine_inject_entropy(e,seed,sizeof seed);
   wipe(seed,sizeof seed);
-  if(!br_ssl_client_reset(&test_client,"one.one.one.one",0))return 0xBAD00102u;
+  if(!br_ssl_client_reset(&test_client,live_host,0))return 0xBAD00102u;
   live_enabled=1;return 1;
  }
  if(op==8){live_enabled=0;return 0;}
@@ -100,6 +136,17 @@ unsigned tls_dispatch(unsigned op,struct tls_mailbox *m,unsigned count)
   p=op==4?br_ssl_engine_sendrec_buf(e,&n):br_ssl_engine_recvrec_buf(e,&n);
   if(!p||!count||count>n)return 0;
   if(op==4)br_ssl_engine_sendrec_ack(e,count);else br_ssl_engine_recvrec_ack(e,count);
+  return 1;
+ case 9:
+ case 11:
+  p=op==9?br_ssl_engine_sendapp_buf(e,&n):br_ssl_engine_recvapp_buf(e,&n);
+  m->ptr=p;m->len=(unsigned)n;return (unsigned)n;
+ case 10:
+ case 12:
+  p=op==10?br_ssl_engine_sendapp_buf(e,&n):br_ssl_engine_recvapp_buf(e,&n);
+  if(!p||!count||count>n)return 0;
+  if(op==10){br_ssl_engine_sendapp_ack(e,count);br_ssl_engine_flush(e,0);}
+  else br_ssl_engine_recvapp_ack(e,count);
   return 1;
  case 7:return br_ssl_engine_last_error(e);
  default:return 0;

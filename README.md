@@ -118,3 +118,7 @@ F8 isolated TCP connect-only diagnostic to 1.1.1.1:443, F9 refreshes per-connect
 ### 0.8.4 assembler repair
 
 Explicit dword operands for TCP sequence/ACK reads and diagnostic IPv4 display fix FASM operand-size mismatch. Version unchanged.
+
+## 0.9.0 development candidate
+
+F2 accepts HTTPS hostname URLs, DNS connects to port 443, F7 uses the same HTTPS path for one.one.one.one. Build generates BearSSL CA anchors from the build runner trust bundle; guest RTC must be UTC and valid, and RDRAND must succeed. BearSSL application spans feed the existing raw/text views only after authentication. Status 4 means application state reached; not proof of complete response. Links-style command menu retained. No automatic redirect, HTML forms or selectable hyperlinks yet. Port 443 reachability, real certificate validation and HTTPS retrieval require runtime verification. This is not a complete Links clone. CA bundle reproducibility, TCP reliability and emulator entropy are outstanding.

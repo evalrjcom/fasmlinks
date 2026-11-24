@@ -23,7 +23,10 @@ for src in "$bear"/src/*/*.c; do
   cc $flags -I"$bear/inc" -I"$bear/src" -c "$src" -o "$obj"
 done
 ar rcs build/bearssl/libbearssl.a build/bearssl/*.o
-cc $flags -I"$bear/inc" -c tls_platform.c -o tls_platform.o
+# Generate actual CA anchors from the runner's packaged trust store.
+make -C "$bear" -j2
+"$bear/build/brssl" ta /etc/ssl/certs/ca-certificates.crt > build/trust_anchors.h
+cc $flags -Ibuild -I"$bear/inc" -c tls_platform.c -o tls_platform.o
 cc $flags -c runtime.c -o runtime.o
 # Compiler integer helpers are freestanding machine code, not libc.
 cc -m32 -nostdlib -static -no-pie -Wl,-T,aux.ld,--gc-sections,--no-undefined -o aux.elf tls_platform.o runtime.o build/bearssl/libbearssl.a -lgcc

@@ -82,9 +82,20 @@ url_submit:
  cmp byte [dhcp_state],3
  jne .not_ready
  ; Parse exactly four decimal octets; no overflow, signs or empty fields.
+ mov byte [url_https],0
  mov esi,url_input
  cmp dword [esi],70747468h
  jne .parse
+ cmp byte [esi+4],'s'
+ jne .http_prefix
+ cmp word [esi+5],2f3ah
+ jne .bad
+ cmp byte [esi+7],'/'
+ jne .bad
+ mov byte [url_https],1
+ add esi,8
+ jmp .parse
+.http_prefix:
  cmp word [esi+4],2f3ah
  jne .parse
  cmp byte [esi+6],'/'
@@ -152,6 +163,8 @@ url_submit:
  mov [url_path],esi
  cmp byte [url_is_name],1
  je .network_checks
+ cmp byte [url_https],1
+ je .bad
  cmp dword [url_ip],0
  je .bad
  cmp dword [url_ip],0ffffffffh
@@ -213,6 +226,15 @@ url_submit:
  mov eax,edi
  sub eax,url_request
  mov [url_request_length],eax
+ mov esi,[url_host_start]
+ mov ecx,[url_host_end]
+ sub ecx,esi
+ mov [tls_hostname_len],ecx
+ mov edi,tls_hostname
+ rep movsb
+ mov byte [edi],0
+ mov al,[url_https]
+ mov [tls_url_pending],al
  cmp byte [url_is_name],1
  jne .numeric
  mov byte [dns_custom],1
@@ -301,11 +323,12 @@ url_encode_name:
  stc
  ret
 
+url_https db 0
 url_shift db 0
 url_is_name db 0
 url_request_length dd 0
-url_prompt db 'OPEN HTTP ADDRESS',10,10,'Enter http://hostname/path or IPv4/path (port 80).',10,'Enter: connect   Backspace: edit   Esc: cancel',10,0
-url_bad db 'Invalid address. Use a hostname or remote IPv4 and /path.',10,'HTTPS and custom ports are not supported.',0
+url_prompt db 'OPEN HTTP / HTTPS ADDRESS',10,10,'Enter https://hostname/path or http://hostname/path.',10,'Enter: connect   Backspace: edit   Esc: cancel',10,0
+url_bad db 'Invalid address. Use a hostname or remote IPv4 and /path.',10,'HTTPS requires a hostname; custom ports unsupported.',0
 url_not_ready db 'Network not ready. Escape and check DHCP / ARP.',0
 url_busy db 'Connection busy. Retry after timeout or Escape.',0
 url_editing db 0

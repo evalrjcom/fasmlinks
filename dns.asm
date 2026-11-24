@@ -353,6 +353,13 @@ dns_parse_message:
  mov dword [http_request_len],cern_get_end-cern_get
 .launch:
  mov byte [dns_state],2
+ cmp byte [dns_custom],1
+ jne .plain_http
+ cmp byte [tls_url_pending],1
+ jne .plain_http
+ call tls_url_connect
+ ret
+.plain_http:
  call tcp_syn_probe
  ret
 .tuple_bad:

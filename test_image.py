@@ -28,6 +28,6 @@ assert 0 < len(aux) <= 512 * 512, 'auxiliary payload size'
 aux_start = (sectors + 1) * 512
 assert image[aux_start:aux_start + len(aux)] == aux, 'auxiliary payload placement'
 assert not any(image[aux_start + len(aux):aux_start + 512 * 512]), 'auxiliary padding'
-expected_version = b'FASM TEXTOS 0.8.4 |'
+expected_version = b'FASM TEXTOS 0.9.0 |'
 assert expected_version in kernel, f'wrong build version: expected {expected_version!r}'
 print('PASS: boot signature, sizes, image content, padding, kernel version')

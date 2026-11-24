@@ -150,7 +150,7 @@ tls_probe_result dd 0
 tls_boot_pass db 'TEXTOS TLS SELFTEST PASS',10,0
 tls_boot_fail db 'TEXTOS TLS SELFTEST FAIL',10,0
 links_menu_text db 'File   View   Link   Setup   Help',10,10,'F2 Open URL   9 Text view   7 Raw response',10,'F5 HTTP status   PgUp/PgDn Scroll',10,'4 DHCP   5 TCP   6 ARP   G DNS',10,'F10 TLS platform status   Esc Menu',0
-tls_info_text db 'TLS diagnostic (no trusted roots / no HTTPS content)',10,10,'BearSSL offline ClientHello test (expected 544C5333): 0x',0
+tls_info_text db 'HTTPS browser: certificate validation required',10,10,'BearSSL offline ClientHello test (expected 544C5333): 0x',0
 home:
  mov esi,home_text
  jmp show
@@ -714,7 +714,7 @@ http_summary:
 .done:
  jmp main
 http_summary_title db 'HTTP status / redirect (F5 refresh; no auto-follow)',0
-http_location_label db 'Location: HTTPS requires TLS, not implemented.',0
+http_location_label db 'Location (manual follow via F2):',0
 
 include 'render.asm'
 
@@ -864,7 +864,7 @@ print:
  jmp .next
 .done:
  ret
-header db 'FASM TEXTOS 0.8.4 |  32-bit protected mode',0
+header db 'FASM TEXTOS 0.9.0 |  32-bit protected mode',0
 menu db '1 Home 2 Sites 3 About 4 DHCP 5 TCP 6 ARP 7 Raw 8 DNS 9 Text',0
 footer db 'F2 URL | F6 HTTP | F7 TLS | F8 TCP443 | F9 TCP info | F10 TLS info | C Test',0
 http_empty_msg db 10,'No HTTP response captured. Press C, then 5 for status and 7 to refresh.',0
@@ -936,7 +936,7 @@ tx_text db 'Diagnostic Ethernet frame queued for transmission.',0
 rx_text db 'Receive ring polled. Counters are internal (no HTTP yet).',0
 home_text db 'HOME  |  DuckDuckGo search',10,10,'https://lite.duckduckgo.com/lite/',10,10,'Search is not connected yet.',0
 sites_text db 'TEXT-FRIENDLY WEBSITES',10,10,'https://lite.duckduckgo.com/lite/',10,'https://www.wikipedia.org/',10,'https://www.gutenberg.org/',10,'https://text.npr.org/',10,'https://info.cern.ch/',10,'https://example.com/',0
-about_text db 'FASM TextOS 0.8.4 - RX validation and DHCP trace',10,10,'Experimental DNS A lookup and HTTP; no TLS yet.',0
+about_text db 'FASM TextOS 0.9.0 - RX validation and DHCP trace',10,10,'Experimental DNS A lookup and HTTP; no TLS yet.',0
 
 include 'net.asm'
 include 'ip.asm'
