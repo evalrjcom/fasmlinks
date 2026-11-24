@@ -101,6 +101,17 @@ ipv4_receive:
  cmp ecx,1518
  ja .short
  mov esi,net_rx_buffer
+ ; Count plausible DNS UDP frames before IPv4 checksum/destination filtering.
+ cmp ecx,42
+ jb .pre_dns_done
+ cmp byte [esi+14],45h
+ jne .pre_dns_done
+ cmp byte [esi+23],17
+ jne .pre_dns_done
+ cmp word [esi+34],3500h
+ jne .pre_dns_done
+ inc dword [dns_wire_seen]
+.pre_dns_done:
  cmp byte [esi+14],045h   ; FIX: intentionally reject IP options (IHL != 5)
  jne .invalid
  movzx edx,word [esi+16]
@@ -280,7 +291,8 @@ tcp_receive:
  mov eax,dword [net_rx_buffer+26]
  cmp eax,dword [remote_ip]
  jne .end
- cmp word [net_rx_buffer+34],0x5000
+ mov ax,[tcp_remote_port]
+ cmp word [net_rx_buffer+34],ax
  jne .end
  mov ax,[tcp_local_port]
  cmp word [net_rx_buffer+36],ax
@@ -371,6 +383,8 @@ tcp_receive:
  mov ebx,ecx
  test ecx,ecx
  jz .fin
+ cmp word [tcp_remote_port],3500h
+ je .dns_payload
  ; Bounded raw HTTP capture at dedicated scratch RAM, not in boot image.
  mov esi,net_rx_buffer+34
  add esi,[tcp_rx_header]
@@ -386,6 +400,22 @@ tcp_receive:
  rep movsb
  add [http_bytes],ebx
  add [tcp_ack_num],ebx
+ jmp .fin
+.dns_payload:
+ ; Capture TCP DNS stream, including its two-byte network-order length.
+ mov esi,net_rx_buffer+34
+ add esi,[tcp_rx_header]
+ mov edi,[dns_tcp_stored]
+ mov eax,4096
+ sub eax,edi
+ cmp ecx,eax
+ jbe .dns_copy
+ mov ecx,eax
+.dns_copy:
+ add [dns_tcp_stored],ecx
+ add edi,DNS_TCP_BUFFER
+ rep movsb
+ add [tcp_ack_num],ebx
 .fin:
  test byte [net_rx_buffer+47],1
  jz .data_ack
@@ -400,6 +430,9 @@ tcp_receive:
  mov byte [tcp_flags],10h
  xor ecx,ecx
  call tcp_send_segment
+ cmp word [tcp_remote_port],3500h
+ jne .end
+ call dns_tcp_check
  jmp .end
 .duplicate:
  ; No out-of-order buffer: advertise current cumulative ACK.
@@ -578,6 +611,7 @@ tcp_syn_probe:
  mov dword [http_scroll],0
  mov dword [http_bytes],0
  mov dword [http_stored],0
+ mov dword [dns_tcp_stored],0
  mov byte [tcp_elapsed],0
  mov byte [tcp_retries],0
  call tcp_send_syn
@@ -646,7 +680,8 @@ tcp_send_segment:
  mov [tx_frame+30],eax
  mov ax,[tcp_local_port]
  mov word [tx_frame+34],ax
- mov word [tx_frame+36],0x5000
+ mov ax,[tcp_remote_port]
+ mov word [tx_frame+36],ax
  mov eax,[tcp_seq_num]
  bswap eax
  mov [tx_frame+38],eax
@@ -714,6 +749,7 @@ tcp_send_segment:
 
 http_get_request db 'GET / HTTP/1.0',13,10,'Host: one.one.one.one',13,10,'Connection: close',13,10,13,10
 http_get_end:
+tcp_remote_port dw 5000h
 tcp_local_port dw 0
 tcp_state db 0
 tcp_flags db 0

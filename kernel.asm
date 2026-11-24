@@ -95,6 +95,9 @@ syn_test:
  je network_detail
  cmp byte [dns_state],1
  je network_detail
+ cmp byte [dns_state],4
+ je network_detail
+ mov word [tcp_remote_port],5000h
  mov dword [remote_ip],01010101h
  mov dword [http_request_ptr],http_get_request
  mov dword [http_request_len],http_get_end-http_get_request
@@ -453,6 +456,22 @@ dns_detail:
  call print
  mov eax,[dns_tx]
  call print_hex32
+ mov esi,dns_tx_ok_label
+ call print
+ mov eax,[dns_tx_ok]
+ call print_hex32
+ mov esi,dns_wire_label
+ call print
+ mov eax,[dns_wire_seen]
+ call print_hex32
+ mov esi,dns_tcp_label
+ call print
+ mov eax,[dns_tcp_attempts]
+ call print_hex32
+ mov esi,dns_tcp_bytes_label
+ call print
+ mov eax,[dns_tcp_stored]
+ call print_hex32
  mov esi,dns_rx_label
  call print
  mov eax,[dns_rx]
@@ -563,7 +582,11 @@ label_dns_checksum_bad db 10,'Bad UDP checksum: ',0
 label_dns_parse_bad db 10,'Parser rejected: ',0
 label_dns_flags db 10,'Last DNS flags: ',0
 dns_title db 'DNS CERN: 8 start/retry, G refresh only',0
-dns_state_label db 10,'DNS state: 0 idle,1 waiting,2 resolved,3 failed: 0x',0
+dns_state_label db 10,'DNS: 0 idle 1 UDP 2 resolved 3 failed 4 TCP: 0x',0
+dns_tx_ok_label db 10,'DNS TX submitted: 0x',0
+dns_wire_label db 10,'DNS before IP filter: 0x',0
+dns_tcp_label db 10,'DNS TCP attempts: 0x',0
+dns_tcp_bytes_label db 10,'DNS TCP bytes: 0x',0
 dns_address_label db 10,'Resolved IPv4: ',0
 dns_tx_label db 10,'DNS queries: 0x',0
 dns_rx_label db 10,'DNS responses: 0x',0
@@ -690,7 +713,7 @@ print:
  jmp .next
 .done:
  ret
-header db 'FASM TEXTOS 0.7.2 |  32-bit protected mode',0
+header db 'FASM TEXTOS 0.7.3 |  32-bit protected mode',0
 menu db '1 Home 2 Sites 3 About 4 DHCP 5 TCP 6 ARP 7 Raw 8 DNS 9 Text',0
 footer db 'C Cloudflare | 8 CERN DNS/HTTP | 7 Raw | 9 Text | N Next P First | 5 Status',0
 http_title db 'HTTP raw response (7 refresh, N next, P first)',0
@@ -761,7 +784,7 @@ tx_text db 'Diagnostic Ethernet frame queued for transmission.',0
 rx_text db 'Receive ring polled. Counters are internal (no HTTP yet).',0
 home_text db 'HOME  |  DuckDuckGo search',10,10,'https://lite.duckduckgo.com/lite/',10,10,'Search is not connected yet.',0
 sites_text db 'TEXT-FRIENDLY WEBSITES',10,10,'https://lite.duckduckgo.com/lite/',10,'https://www.wikipedia.org/',10,'https://www.gutenberg.org/',10,'https://text.npr.org/',10,'https://info.cern.ch/',10,'https://example.com/',0
-about_text db 'FASM TextOS 0.7.2 - RX validation and DHCP trace',10,10,'Experimental DNS A lookup and HTTP; no TLS yet.',0
+about_text db 'FASM TextOS 0.7.3 - RX validation and DHCP trace',10,10,'Experimental DNS A lookup and HTTP; no TLS yet.',0
 
 include 'net.asm'
 include 'ip.asm'
