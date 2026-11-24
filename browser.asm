@@ -3,11 +3,20 @@
 ; DNS and HTTPS are not silently substituted.
 url_open:
  mov byte [url_editing],1
+ mov byte [url_shift],0
  mov byte [url_len],0
  mov byte [url_input],0
  mov esi,url_prompt
  jmp url_draw
 url_key:
+ cmp al,2ah
+ je .shift_on
+ cmp al,36h
+ je .shift_on
+ cmp al,0aah
+ je .shift_off
+ cmp al,0b6h
+ je .shift_off
  test al,80h
  jnz main
  cmp al,1
@@ -19,7 +28,15 @@ url_key:
  cmp al,58
  jae main
  movzx eax,al
+ cmp byte [url_shift],1
+ jne .normal
+ cmp al,27h
+ jne .normal
+ mov al,':'
+ jmp .mapped
+.normal:
  mov al,[url_keys+eax]
+.mapped:
  test al,al
  jz main
  movzx ecx,byte [url_len]
@@ -39,6 +56,12 @@ url_key:
 .redraw:
  mov esi,url_prompt
  jmp url_draw
+.shift_on:
+ mov byte [url_shift],1
+ jmp main
+.shift_off:
+ mov byte [url_shift],0
+ jmp main
 .escape:
  mov byte [url_editing],0
  jmp home
@@ -66,6 +89,25 @@ url_submit:
  add esi,7
 .parse:
  mov [url_host_start],esi
+ mov byte [url_is_name],0
+ mov edx,esi
+.scan_host:
+ mov al,[edx]
+ test al,al
+ jz .scanned
+ cmp al,'/'
+ je .scanned
+ cmp al,'a'
+ jb .scan_next
+ cmp al,'z'
+ ja .scan_next
+ mov byte [url_is_name],1
+.scan_next:
+ inc edx
+ jmp .scan_host
+.scanned:
+ cmp byte [url_is_name],1
+ je .hostname
  mov edi,url_ip
  mov ecx,4
 .octet:
@@ -95,6 +137,8 @@ url_submit:
  jne .bad
  inc esi
  jmp .octet
+.hostname:
+ mov esi,edx
 .host_done:
  mov [url_host_end],esi
  cmp byte [esi],0
@@ -103,6 +147,8 @@ url_submit:
  jne .bad
 .path_ok:
  mov [url_path],esi
+ cmp byte [url_is_name],1
+ je .network_checks
  cmp dword [url_ip],0
  je .bad
  cmp dword [url_ip],0ffffffffh
@@ -113,6 +159,7 @@ url_submit:
  xor eax,dword [local_ip]
  and eax,[dhcp_subnet]
  jz .bad
+.network_checks:
  cmp byte [dhcp_state],3
  jne .not_ready
  cmp byte [gateway_known],1
@@ -125,6 +172,13 @@ url_submit:
  je .busy
  cmp byte [dns_state],4
  je .busy
+ cmp byte [url_is_name],1
+ jne .build_request
+ cmp dword [dhcp_dns_ip],0
+ je .not_ready
+ call url_encode_name
+ jc .bad
+.build_request:
  ; Construct bounded request from validated input (no CR/LF possible).
  mov edi,url_request
  mov esi,url_get
@@ -155,6 +209,14 @@ url_submit:
  rep movsb
  mov eax,edi
  sub eax,url_request
+ mov [url_request_length],eax
+ cmp byte [url_is_name],1
+ jne .numeric
+ mov byte [dns_custom],1
+ mov byte [url_editing],0
+ call dns_start_custom
+ jmp dns_detail
+.numeric:
  mov [http_request_len],eax
  mov dword [http_request_ptr],url_request
  mov eax,dword [url_ip]
@@ -173,8 +235,74 @@ url_submit:
  mov esi,url_busy
  jmp url_draw
 
-url_prompt db 'OPEN HTTP ADDRESS',10,10,'Enter IPv4/path (port 80 only).',10,'Enter: connect   Backspace: edit   Esc: cancel',10,0
-url_bad db 'Invalid address. Use a remote IPv4 address and optional /path.',10,'HTTPS, hostnames and custom ports are not supported here.',0
+; Encode bounded DNS labels. Input host is already limited to 72 bytes.
+url_encode_name:
+ mov esi,[url_host_start]
+ mov edx,[url_host_end]
+ mov edi,dns_question
+.label:
+ cmp esi,edx
+ jae .bad
+ mov ebx,edi
+ inc edi
+ xor ecx,ecx
+.char:
+ cmp esi,edx
+ je .finish_label
+ mov al,[esi]
+ cmp al,'.'
+ je .finish_label
+ cmp al,'a'
+ jb .digit
+ cmp al,'z'
+ jbe .store
+.digit:
+ cmp al,'0'
+ jb .hyphen
+ cmp al,'9'
+ jbe .store
+.hyphen:
+ cmp al,'-'
+ jne .bad
+ test ecx,ecx
+ jz .bad
+.store:
+ stosb
+ inc esi
+ inc ecx
+ cmp ecx,63
+ ja .bad
+ jmp .char
+.finish_label:
+ test ecx,ecx
+ jz .bad
+ cmp byte [edi-1],'-'
+ je .bad
+ mov [ebx],cl
+ cmp esi,edx
+ je .finish
+ inc esi
+ jmp .label
+.finish:
+ xor eax,eax
+ stosb
+ mov ax,0100h
+ stosw
+ stosw
+ mov eax,edi
+ sub eax,dns_question
+ mov [dns_question_len],eax
+ clc
+ ret
+.bad:
+ stc
+ ret
+
+url_shift db 0
+url_is_name db 0
+url_request_length dd 0
+url_prompt db 'OPEN HTTP ADDRESS',10,10,'Enter http://hostname/path or IPv4/path (port 80).',10,'Enter: connect   Backspace: edit   Esc: cancel',10,0
+url_bad db 'Invalid address. Use a hostname or remote IPv4 and /path.',10,'HTTPS and custom ports are not supported.',0
 url_not_ready db 'Network not ready. Escape and check DHCP / ARP.',0
 url_busy db 'Connection busy. Retry after timeout or Escape.',0
 url_editing db 0

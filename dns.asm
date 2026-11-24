@@ -3,6 +3,25 @@
 ; Supports directly returned A records, including compressed owner pointer to question.
 ; No CNAME following, TCP fallback, DNSSEC or arbitrary hostname entry.
 dns_start:
+ ; Default CERN probe; interactive editor uses dns_start_custom.
+ cmp byte [dns_state],1
+ je .default_done
+ cmp byte [dns_state],4
+ je .default_done
+ cmp byte [tcp_state],1
+ je .default_done
+ cmp byte [tcp_state],2
+ je .default_done
+ mov esi,dns_default_question
+ mov edi,dns_question
+ mov ecx,dns_default_end-dns_default_question
+ rep movsb
+ mov dword [dns_question_len],dns_default_end-dns_default_question
+ mov byte [dns_custom],0
+ jmp dns_start_custom
+.default_done:
+ ret
+dns_start_custom:
  cmp byte [dhcp_state],3
  jne .done
  cmp byte [gateway_known],1
@@ -58,15 +77,18 @@ dns_send:
  mov ax,[dns_port]
  mov [tx_frame+34],ax
  mov word [tx_frame+36],3500h
- mov ax,dns_query_end-dns_query+8
+ mov eax,[dns_question_len]
+ add eax,20
  xchg al,ah
  mov [tx_frame+38],ax
- mov ax,dns_query_end-dns_query+28
+ mov eax,[dns_question_len]
+ add eax,40
  xchg al,ah
  mov [tx_frame+16],ax
  mov esi,dns_query
  mov edi,tx_frame+42
- mov ecx,dns_query_end-dns_query
+ mov ecx,[dns_question_len]
+ add ecx,12
  rep movsb
  mov ax,[dns_id]
  mov [tx_frame+42],ax
@@ -75,9 +97,11 @@ dns_send:
  mov ecx,8
  call sum_words
  mov edx,eax
- add edx,17+8+dns_query_end-dns_query
+ add edx,37
+ add edx,[dns_question_len]
  mov esi,tx_frame+34
- mov ecx,8+dns_query_end-dns_query
+ mov ecx,[dns_question_len]
+ add ecx,20
  call sum_words
  add eax,edx
  mov edx,eax
@@ -101,7 +125,8 @@ dns_send:
  mov eax,[net_tx_count]
  push eax
  mov esi,tx_frame
- mov ecx,42+dns_query_end-dns_query
+ mov ecx,[dns_question_len]
+ add ecx,54
  call ne_send_buffer
  pop eax
  cmp eax,[net_tx_count]
@@ -137,7 +162,9 @@ dns_receive:
  inc dword [dns_matched]
  movzx ecx,word [net_rx_buffer+38]
  xchg cl,ch
- cmp ecx,8+dns_query_end-dns_query
+ mov eax,[dns_question_len]
+ add eax,20
+ cmp ecx,eax
  jb .done
  lea ebx,[net_rx_buffer+34+ecx] ; exclusive UDP end
  ; Validate nonzero UDP checksum (zero legal for IPv4).
@@ -186,7 +213,8 @@ dns_receive:
 
 ; ESI = DNS message base; EBX = exclusive end. Shared UDP/TCP parser.
 dns_parse_message:
- lea eax,[esi+12+dns_query_end-dns_question]
+ mov eax,[dns_question_len]
+ lea eax,[esi+eax+12]
  cmp eax,ebx
  ja .failed
  mov ax,[esi]
@@ -206,7 +234,7 @@ dns_parse_message:
  ; Match exact question (fixed lower-case wire name).
  add esi,12
  mov edi,dns_question
- mov ecx,dns_query_end-dns_question
+ mov ecx,[dns_question_len]
  repe cmpsb
  jne .failed
  inc dword [dns_rx]
@@ -217,7 +245,8 @@ dns_parse_message:
  cmp word [esi],0cc0h
  je .compressed
  mov edi,dns_question
- mov ecx,dns_qname_end-dns_question
+ mov ecx,[dns_question_len]
+ sub ecx,4
  lea eax,[esi+ecx]
  cmp eax,ebx
  ja .failed
@@ -249,8 +278,16 @@ dns_parse_message:
 .open_http:
  mov word [tcp_remote_port],5000h
  mov dword [remote_ip],eax
+ cmp byte [dns_custom],1
+ jne .default_http
+ mov dword [http_request_ptr],url_request
+ mov eax,[url_request_length]
+ mov [http_request_len],eax
+ jmp .launch
+.default_http:
  mov dword [http_request_ptr],cern_get
  mov dword [http_request_len],cern_get_end-cern_get
+.launch:
  mov byte [dns_state],2
  call tcp_syn_probe
  ret
@@ -309,7 +346,13 @@ dns_tick:
  mov ax,[dns_id]
  mov word [dns_query],ax
  mov dword [http_request_ptr],dns_tcp_query
- mov dword [http_request_len],dns_query_end-dns_tcp_query
+ mov eax,[dns_question_len]
+ add eax,12
+ mov edx,eax
+ xchg al,ah
+ mov word [dns_tcp_query],ax
+ add edx,2
+ mov [http_request_len],edx
  inc dword [dns_tcp_attempts]
  call tcp_syn_probe
  ret
@@ -363,14 +406,14 @@ dns_port dw 0
 dns_result dd 0
 dns_tx dd 0
 dns_rx dd 0
-dns_tcp_query:
- db (dns_query_end-dns_query) shr 8,(dns_query_end-dns_query) and 255
+dns_custom db 0
+dns_question_len dd 0
+dns_tcp_query dw 0
 dns_query:
  dw 0,0001h,0100h,0,0,0
-dns_question:
- db 4,'info',4,'cern',2,'ch',0
-dns_qname_end:
+dns_question rb 80
+dns_default_question db 4,'info',4,'cern',2,'ch',0
  dw 0100h,0100h
-dns_query_end:
+dns_default_end:
 cern_get db 'GET / HTTP/1.0',13,10,'Host: info.cern.ch',13,10,'Connection: close',13,10,13,10
 cern_get_end:

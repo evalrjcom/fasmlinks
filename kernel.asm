@@ -34,6 +34,8 @@ main:
  je url_key
  cmp al,0x3c
  je url_open
+ cmp al,0x3f
+ je http_summary
  cmp al,0x02
  je home
  cmp al,0x03
@@ -528,6 +530,122 @@ dns_detail:
  call print_hex32
  jmp main
 
+http_summary:
+ mov edi,0xb8000+160*4
+ mov ecx,80*20
+ mov ax,1f20h
+ rep stosw
+ mov edi,0xb8000+160*4
+ mov esi,http_summary_title
+ call print
+ mov edi,0xb8000+160*6
+ mov esi,HTTP_BUFFER
+ mov ecx,[http_stored]
+ test ecx,ecx
+ jz .empty
+ ; Display first status line, bounded to a single VGA row.
+ mov edx,80
+.status:
+ test ecx,ecx
+ jz .done
+ lodsb
+ dec ecx
+ cmp al,10
+ je .headers
+ cmp al,13
+ je .status
+ test edx,edx
+ jz .status
+ cmp al,32
+ jb .status
+ cmp al,126
+ ja .status
+ mov ah,1fh
+ stosw
+ dec edx
+ jmp .status
+.headers:
+ cmp ecx,2
+ jb .done
+ cmp word [esi],0a0dh
+ je .done
+ cmp ecx,9
+ jb .done
+ ; Match Location case-insensitively.
+ mov eax,[esi]
+ or eax,20202020h
+ cmp eax,61636f6ch
+ jne .skip
+ mov eax,[esi+4]
+ or eax,20202020h
+ cmp eax,6e6f6974h
+ jne .skip
+ cmp byte [esi+8],':'
+ jne .skip
+ mov edi,0xb8000+160*8
+ mov esi,http_location_label
+ call print
+ ; Rescan from start because print consumes ESI/ECX.
+ mov esi,HTTP_BUFFER
+ mov ecx,[http_stored]
+ jmp .find_location
+.skip:
+ lodsb
+ dec ecx
+ test ecx,ecx
+ jz .done
+ cmp al,10
+ jne .skip
+ jmp .headers
+.find_location:
+ cmp ecx,9
+ jb .done
+ mov eax,[esi]
+ or eax,20202020h
+ cmp eax,61636f6ch
+ jne .advance
+ mov eax,[esi+4]
+ or eax,20202020h
+ cmp eax,6e6f6974h
+ jne .advance
+ cmp byte [esi+8],':'
+ je .location
+.advance:
+ inc esi
+ dec ecx
+ jmp .find_location
+.location:
+ add esi,9
+ sub ecx,9
+ mov edi,0xb8000+160*10
+ mov edx,240
+.loc_loop:
+ test ecx,ecx
+ jz .done
+ test edx,edx
+ jz .done
+ lodsb
+ dec ecx
+ cmp al,13
+ je .done
+ cmp al,10
+ je .done
+ cmp al,32
+ jb .loc_loop
+ cmp al,126
+ ja .loc_loop
+ mov ah,1fh
+ stosw
+ dec edx
+ jmp .loc_loop
+.empty:
+ mov esi,http_empty_msg
+ call print
+.done:
+ jmp main
+http_summary_title db 'HTTP status / redirect (F5 refresh; no auto-follow)',0
+http_location_label db 'Location: HTTPS requires TLS, not implemented.',0
+
 text_view:
  ; Minimal body-only HTML preview. Not a standards-complete renderer.
  mov edi,0xb8000+160*4
@@ -736,9 +854,9 @@ print:
  jmp .next
 .done:
  ret
-header db 'FASM TEXTOS 0.7.5 |  32-bit protected mode',0
+header db 'FASM TEXTOS 0.7.6 |  32-bit protected mode',0
 menu db '1 Home 2 Sites 3 About 4 DHCP 5 TCP 6 ARP 7 Raw 8 DNS 9 Text',0
-footer db 'F2 Open IP | C Test | 8 DNS | 7 Raw | 9 Text | N Next P First | 5 Status',0
+footer db 'F2 URL | F5 HTTP status | C Test | 8 DNS | 7 Raw | 9 Text | N/P Pages',0
 http_empty_msg db 10,'No HTTP response captured. Press C, then 5 for status and 7 to refresh.',0
 http_title db 'HTTP raw response (7 refresh, N next, P first)',0
 arp_detail_title db 'Gateway ARP diagnostics (6 refresh, A retry)',0
@@ -808,7 +926,7 @@ tx_text db 'Diagnostic Ethernet frame queued for transmission.',0
 rx_text db 'Receive ring polled. Counters are internal (no HTTP yet).',0
 home_text db 'HOME  |  DuckDuckGo search',10,10,'https://lite.duckduckgo.com/lite/',10,10,'Search is not connected yet.',0
 sites_text db 'TEXT-FRIENDLY WEBSITES',10,10,'https://lite.duckduckgo.com/lite/',10,'https://www.wikipedia.org/',10,'https://www.gutenberg.org/',10,'https://text.npr.org/',10,'https://info.cern.ch/',10,'https://example.com/',0
-about_text db 'FASM TextOS 0.7.5 - RX validation and DHCP trace',10,10,'Experimental DNS A lookup and HTTP; no TLS yet.',0
+about_text db 'FASM TextOS 0.7.6 - RX validation and DHCP trace',10,10,'Experimental DNS A lookup and HTTP; no TLS yet.',0
 
 include 'net.asm'
 include 'ip.asm'
