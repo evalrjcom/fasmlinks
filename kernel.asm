@@ -17,6 +17,18 @@ start:
  mov eax,40000h
  call eax
  mov [tls_probe_result],eax
+ ; CI debug console: emit the actual guest result (no networking required).
+ mov esi,tls_boot_fail
+ cmp eax,544c5333h
+ jne .tls_marker
+ mov esi,tls_boot_pass
+.tls_marker:
+ lodsb
+ test al,al
+ jz .tls_marker_done
+ out 0e9h,al
+ jmp .tls_marker
+.tls_marker_done:
  call net_probe
  ; NEW: start DHCP automatically after NIC initialization.
  call dhcp_clock_init
@@ -98,6 +110,8 @@ tls_info:
  call print_hex32
  jmp main
 tls_probe_result dd 0
+tls_boot_pass db 'TEXTOS TLS SELFTEST PASS',10,0
+tls_boot_fail db 'TEXTOS TLS SELFTEST FAIL',10,0
 links_menu_text db 'File   View   Link   Setup   Help',10,10,'F2 Open URL   9 Text view   7 Raw response',10,'F5 HTTP status   PgUp/PgDn Scroll',10,'4 DHCP   5 TCP   6 ARP   G DNS',10,'F10 TLS platform status   Esc Menu',0
 tls_info_text db 'TLS platform status (not HTTPS yet)',10,10,'BearSSL offline ClientHello test (expected 544C5333): 0x',0
 home:

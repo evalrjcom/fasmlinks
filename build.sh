@@ -28,8 +28,11 @@ cc $flags -c runtime.c -o runtime.o
 # Compiler integer helpers are freestanding machine code, not libc.
 cc -m32 -nostdlib -static -no-pie -Wl,-T,aux.ld,--gc-sections,--no-undefined -o aux.elf tls_platform.o runtime.o build/bearssl/libbearssl.a -lgcc
 # Test the same code in a 32-bit host process, with OS entropy disabled in BearSSL.
-cc -m32 -O2 -I"$bear/inc" -DHOST_TEST tls_platform.c build/bearssl/libbearssl.a -o build/bearssl-selftest
+cc -m32 -O2 -fno-pie -no-pie -I"$bear/inc" -DHOST_TEST tls_platform.c build/bearssl/libbearssl.a -o build/bearssl-selftest
 ./build/bearssl-selftest
+# Reject unresolved runtime references before publishing a guest binary.
+test -z "$(nm -u aux.elf)"
+size aux.elf
 objcopy -O binary aux.elf aux.bin
 aux_sectors=$(awk '$1 == "AUX_SECTORS" && $2 == "=" {print $3}' kernel_layout.inc)
 [ "$aux_sectors" -eq 512 ] || { echo 'Unexpected auxiliary layout' >&2; exit 1; }

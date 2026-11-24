@@ -94,3 +94,7 @@ Pinned upstream BearSSL 0.6 archive with SHA-256 verification; freestanding 32-b
 ## 0.8.1
 
 Fix glibc fortified-symbol linkage by using explicit freestanding compiler options. Expand auxiliary load region to 256 KiB at 0x40000..0x7FFFF, with per-sector segments. Compile upstream BearSSL archive and link reachable TLS client/X.509 engine code. F10 expected 544C5333 after SHA-256/HMAC and offline ClientHello record checks. Fixed test seed and empty trust-anchor list are used ONLY in an isolated offline test; no network TLS session is exposed. Live HTTPS still requires secure entropy, trusted roots, valid time, and reliable TCP stream integration. CI/runtime verification pending.
+
+### 0.8.1 build repair
+
+Fix the missing freestanding strlen symbol reported by CI, link the host self-test as non-PIE, verify no undefined guest symbols remain, and require the actual booted floppy to report BearSSL self-test success via QEMU debug port E9 before publishing. QEMU is an offline boot test, not copy.sh/v86 network or live HTTPS verification. Version stays 0.8.1.
