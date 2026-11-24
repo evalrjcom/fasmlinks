@@ -36,6 +36,7 @@ stream_reset:
  mov byte [stream_eof],0
  mov byte [stream_http_probe],0
  mov byte [stream_tls_probe],0
+ mov byte [port443_active],0
  ret
 
 ; ESI=source, ECX=count. Preserve registers. CF=1 if no space.

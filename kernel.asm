@@ -45,6 +45,7 @@ main:
  call dhcp_tick ; NEW: nonblocking RTC retry scheduler
  call stream_probe_poll
  call tls_poll
+ call port443_poll
 .keyboard:
  in al,0x64
  test al,1
@@ -64,6 +65,10 @@ main:
  je stream_probe_open
  cmp al,0x41
  je tls_probe_open
+ cmp al,0x42
+ je port443_open
+ cmp al,0x43
+ je port443_info
  cmp al,0x02
  je home
  cmp al,0x03
@@ -131,6 +136,14 @@ tls_info:
  mov esi,tls_rx_label
  call print
  mov eax,[tls_record_rx]
+ call print_hex32
+ mov esi,tls_tcp_label
+ call print
+ movzx eax,byte [tcp_state]
+ call print_hex32
+ mov esi,tls_engine_label
+ call print
+ mov eax,[tls_engine_state]
  call print_hex32
  jmp main
 tls_probe_result dd 0
@@ -851,9 +864,9 @@ print:
  jmp .next
 .done:
  ret
-header db 'FASM TEXTOS 0.8.3 |  32-bit protected mode',0
+header db 'FASM TEXTOS 0.8.4 |  32-bit protected mode',0
 menu db '1 Home 2 Sites 3 About 4 DHCP 5 TCP 6 ARP 7 Raw 8 DNS 9 Text',0
-footer db 'F2 URL | F5 Status | F6 Stream | F7 TLS | F10 Info | C Test | 7 Raw | 9 Text',0
+footer db 'F2 URL | F6 HTTP | F7 TLS | F8 TCP443 | F9 TCP info | F10 TLS info | C Test',0
 http_empty_msg db 10,'No HTTP response captured. Press C, then 5 for status and 7 to refresh.',0
 http_title db 'HTTP raw response (7 refresh, N next, P first)',0
 arp_detail_title db 'Gateway ARP diagnostics (6 refresh, A retry)',0
@@ -923,12 +936,13 @@ tx_text db 'Diagnostic Ethernet frame queued for transmission.',0
 rx_text db 'Receive ring polled. Counters are internal (no HTTP yet).',0
 home_text db 'HOME  |  DuckDuckGo search',10,10,'https://lite.duckduckgo.com/lite/',10,10,'Search is not connected yet.',0
 sites_text db 'TEXT-FRIENDLY WEBSITES',10,10,'https://lite.duckduckgo.com/lite/',10,'https://www.wikipedia.org/',10,'https://www.gutenberg.org/',10,'https://text.npr.org/',10,'https://info.cern.ch/',10,'https://example.com/',0
-about_text db 'FASM TextOS 0.8.3 - RX validation and DHCP trace',10,10,'Experimental DNS A lookup and HTTP; no TLS yet.',0
+about_text db 'FASM TextOS 0.8.4 - RX validation and DHCP trace',10,10,'Experimental DNS A lookup and HTTP; no TLS yet.',0
 
 include 'net.asm'
 include 'ip.asm'
 include 'stream.asm'
 include 'tls.asm'
+include 'probe.asm'
 include 'dhcp.asm'
 include 'browser.asm'
 include 'dns.asm'

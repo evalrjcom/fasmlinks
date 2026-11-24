@@ -101,6 +101,18 @@ ipv4_receive:
  cmp ecx,1518
  ja .short
  mov esi,net_rx_buffer
+ ; Count port-matched TCP headers before IP checksum/filtering.
+ cmp ecx,54
+ jb .pre_tcp_done
+ cmp byte [esi+14],45h
+ jne .pre_tcp_done
+ cmp byte [esi+23],6
+ jne .pre_tcp_done
+ mov ax,[tcp_local_port]
+ cmp [esi+36],ax
+ jne .pre_tcp_done
+ inc dword [probe_wire]
+.pre_tcp_done:
  ; Count plausible DNS UDP frames before IPv4 checksum/destination filtering.
  cmp ecx,42
  jb .pre_dns_done
@@ -285,18 +297,20 @@ tcp_receive:
  jb .end
  cmp byte [tcp_state],2
  ja .end
- mov eax,dword [net_rx_buffer+30]
- cmp eax,dword [local_ip]
- jne .end
- mov eax,dword [net_rx_buffer+26]
- cmp eax,dword [remote_ip]
- jne .end
- mov ax,[tcp_remote_port]
- cmp word [net_rx_buffer+34],ax
- jne .end
  mov ax,[tcp_local_port]
  cmp word [net_rx_buffer+36],ax
  jne .end
+ inc dword [probe_port_rx]
+ mov eax,dword [net_rx_buffer+30]
+ cmp eax,dword [local_ip]
+ jne .tuple_bad
+ mov eax,dword [net_rx_buffer+26]
+ cmp eax,dword [remote_ip]
+ jne .tuple_bad
+ mov ax,[tcp_remote_port]
+ cmp word [net_rx_buffer+34],ax
+ jne .tuple_bad
+ inc dword [probe_tuple_rx]
  movzx eax,byte [net_rx_buffer+46]
  shr eax,4
  cmp eax,5
@@ -330,6 +344,13 @@ tcp_receive:
  inc dword [tcp_packets]
  mov al,[net_rx_buffer+47]
  mov [tcp_last_flags],al
+ mov [probe_last_flags],al
+ mov eax,[net_rx_buffer+42]
+ bswap eax
+ mov [probe_last_ack],eax
+ mov eax,[net_rx_buffer+38]
+ bswap eax
+ mov [probe_last_seq],eax
  cmp byte [tcp_state],1
  jne .established
  ; SYN-ACK or RST must acknowledge our actual initial sequence.
@@ -338,13 +359,14 @@ tcp_receive:
  mov edx,[tcp_seq_num]
  inc edx
  cmp eax,edx
- jne .end
+ jne .syn_ack_bad
  test byte [net_rx_buffer+47],4
  jnz .reset
  mov al,[net_rx_buffer+47]
- and al,13h
+ and al,17h
  cmp al,12h
- jne .end
+ jne .syn_flags_bad
+ inc dword [probe_syn_ack]
  mov eax,dword [net_rx_buffer+38]
  bswap eax
  inc eax
@@ -482,10 +504,21 @@ tcp_receive:
  test byte [net_rx_buffer+47],4
  jnz .end
  jmp .send_ack
+.tuple_bad:
+ inc dword [probe_tuple_bad]
+ jmp .end
+.syn_ack_bad:
+ inc dword [probe_ack_bad]
+ jmp .end
+.syn_flags_bad:
+ inc dword [probe_flags_bad]
+ jmp .end
 .reset:
+ inc dword [probe_rst]
  mov byte [tcp_state],4
  jmp .end
 .bad_checksum:
+ inc dword [probe_checksum_bad]
  inc dword [tcp_bad_checksum]
 .end:
  ret
@@ -649,10 +682,13 @@ tcp_connect_common:
  je .end
  cmp byte [tcp_state],2
  je .end
+ call probe_counters_reset
+ mov byte [port443_active],0
  mov byte [tcp_state],1
  rdtsc
  xor eax,edx
  mov [tcp_seq_num],eax
+ mov [probe_initial_seq],eax
  ; NEW: select a fresh ephemeral port for each connection.
  and ax,3fffh
  or ax,0c000h
@@ -662,6 +698,9 @@ tcp_connect_common:
  ; FIX: DNS transport must not invalidate the previous HTTP response.
  cmp word [tcp_remote_port],3500h
  je .dns_reset
+ ; Keep the previous HTTP page during non-HTTP diagnostic connections.
+ cmp word [tcp_remote_port],5000h
+ jne .reset_done
  mov dword [render_page],0
  mov byte [render_more],0
  mov dword [http_scroll],0
@@ -681,7 +720,13 @@ tcp_connect_common:
 tcp_send_syn:
  mov byte [tcp_flags],2
  xor ecx,ecx
+ mov eax,[net_tx_count]
  call tcp_send_segment
+ inc dword [probe_syn_attempt]
+ cmp eax,[net_tx_count]
+ je .done
+ inc dword [probe_syn_tx]
+.done:
  inc dword [tcp_syn_sent]
  ret
 
@@ -786,6 +831,12 @@ tcp_send_segment:
  bswap eax
  mov [tx_frame+42],eax
  mov byte [tx_frame+46],0x50
+ ; SYN advertises conservative MSS (536) matching the stream sender.
+ cmp byte [tcp_flags],2
+ jne .no_mss
+ mov byte [tx_frame+46],60h
+ mov dword [tx_frame+54],18020402h ; MSS option: 02 04 02 18 = 536
+.no_mss:
  mov al,[tcp_flags]
  mov [tx_frame+47],al
  mov word [tx_frame+48],0x0040
@@ -806,6 +857,10 @@ tcp_send_segment:
 .payload_done:
  movzx eax,word [tcp_payload_len]
  add eax,40
+ cmp byte [tcp_flags],2
+ jne .ip_size_ready
+ add eax,4
+.ip_size_ready:
  mov [tcp_ip_len],ax
  xchg al,ah
  mov [tx_frame+16],ax
@@ -818,8 +873,8 @@ tcp_send_segment:
  call sum_words
  mov edx,eax
  add edx,6
- movzx eax,word [tcp_payload_len]
- add eax,20
+ movzx eax,word [tcp_ip_len]
+ sub eax,20
  add edx,eax
  mov esi,tx_frame+34
  mov ecx,20

@@ -23,6 +23,7 @@ tls_probe_open:
  jne .not_ready
  cmp byte [gateway_known],1
  jne .not_ready
+ mov dword [tls_engine_state],0
  mov dword [tls_record_tx],0
  mov dword [tls_record_rx],0
  mov dword [tls_last_error],0
@@ -59,6 +60,10 @@ tls_poll:
  je .done
  cmp byte [tcp_state],2
  je .state
+ cmp byte [tcp_state],5
+ je .timeout
+ cmp byte [tcp_state],4
+ je .reset
  cmp byte [tcp_state],3
  jne .aborted
  cmp dword [stream_rx_used],0
@@ -125,6 +130,12 @@ tls_poll:
 .unexpected_app:
  mov dword [tls_live_status],0bad00104h
  jmp tls_cancel
+.timeout:
+ mov dword [tls_live_status],0bad00106h
+ jmp tls_cancel
+.reset:
+ mov dword [tls_live_status],0bad00107h
+ jmp tls_cancel
 .aborted:
  mov dword [tls_live_status],0bad00105h
  jmp tls_cancel
@@ -144,6 +155,9 @@ tls_cancel:
  xor ecx,ecx
  call tcp_send_segment
 .stop:
+ ; Preserve timeout/reset state for diagnosis.
+ cmp byte [tcp_state],5
+ je .disable
  mov byte [tcp_state],4
 .disable:
  mov eax,8
@@ -162,3 +176,6 @@ tls_live_label db 10,'F7 live diagnostic status: 0x',0
 tls_error_label db 10,'BearSSL error: 0x',0
 tls_tx_label db 10,'TLS record bytes queued: 0x',0
 tls_rx_label db 10,'TLS record bytes received: 0x',0
+
+tls_tcp_label db 10,'TCP state: 0x',0
+tls_engine_label db 10,'BearSSL state bits: 0x',0
