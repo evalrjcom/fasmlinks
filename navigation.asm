@@ -20,6 +20,10 @@ nav_commit:
  popad
  ret
 nav_loading:
+ cmp byte [diagnostic_mode],1
+ je .keep_diag
+ call browser_chrome
+.keep_diag:
  mov byte [nav_loading_flag],1
  mov byte [nav_view],0
  mov dword [http_stored],0
@@ -339,6 +343,10 @@ nav_store_link:
  popad
  ret
 nav_links_view:
+ cmp byte [diagnostic_mode],1
+ je .keep_diag
+ call browser_chrome
+.keep_diag:
  mov byte [nav_choosing],1
  mov edi,0b8000h+160*4
  mov ecx,80*20

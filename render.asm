@@ -12,6 +12,10 @@ text_page_down:
  inc dword [render_page]
  jmp text_view
 text_view:
+ cmp byte [diagnostic_mode],1
+ je .keep_diag
+ call browser_chrome
+.keep_diag:
  mov edi,0xb8000+160*4
  mov ecx,80*20
  mov ax,1f20h
@@ -23,6 +27,7 @@ text_view:
  call print
  mov byte [nav_view],1
  mov dword [nav_link_count],0
+ mov byte [render_anchor],0
  mov byte [render_more],0 ; FIX: stale scroll state after empty/partial response.
  mov esi,HTTP_BUFFER
  mov ecx,[http_stored]
@@ -49,6 +54,7 @@ text_view:
  mov dword [render_word_len],0
  mov byte [render_space],0
  mov byte [render_hidden],0
+ mov byte [render_select],0
  mov byte [render_more],0
 .loop:
  cmp esi,[render_end]
@@ -57,6 +63,8 @@ text_view:
  cmp al,'<'
  je .tag
  cmp byte [render_hidden],0
+ jne .loop
+ cmp byte [render_select],0
  jne .loop
  cmp al,'&'
  je .entity
@@ -75,6 +83,15 @@ text_view:
 .entity:
  mov edx,[render_end]
  sub edx,esi
+ cmp edx,5
+ jb .amp_check
+ cmp dword [esi],7073626eh ; nbsp
+ jne .amp_check
+ cmp byte [esi+4],';'
+ jne .amp_check
+ add esi,5
+ jmp .whitespace
+.amp_check:
  cmp edx,4
  jb .entity_short
  cmp dword [esi],3b706d61h
@@ -274,11 +291,36 @@ text_view:
 .visible:
  cmp byte [render_hidden],0
  jne .loop
+ cmp dword [render_tag],656c6573h ; sele
+ jne .select_done
+ cmp dword [render_tag+4],00007463h ; ct
+ jne .select_done
+ cmp byte [render_closing],1
+ je .select_close
+ mov byte [render_select],1
+ jmp .loop
+.select_close:
+ mov byte [render_select],0
+ jmp .loop
+.select_done:
+ cmp byte [render_select],0
+ jne .loop
  cmp word [render_tag],0061h
  jne .not_anchor
  cmp byte [render_closing],0
- jne .not_anchor
+ jne .anchor_close
+ call render_flush
+ mov eax,[nav_link_count]
+ push eax
  call nav_capture_link
+ pop eax
+ cmp eax,[nav_link_count]
+ je .not_anchor
+ mov byte [render_anchor],1
+ jmp .not_anchor
+.anchor_close:
+ call render_flush
+ mov byte [render_anchor],0
 .not_anchor:
  ; Exact block tag names, not prefixes.
  cmp word [render_tag],0070h
@@ -383,6 +425,10 @@ render_emit:
  mov ebx,[render_col]
  lea edi,[0xb8000+160*6+edx+ebx*2]
  mov ah,1fh
+ cmp byte [render_anchor],1
+ jne .plain
+ mov ah,1bh ; cyan text on blue
+.plain:
  stosw
 .advance:
  inc dword [render_col]
@@ -400,6 +446,8 @@ render_col dd 0
 render_word_len dd 0
 render_space db 0
 render_hidden db 0
+render_select db 0
+render_anchor db 0
 render_closing db 0
 render_more db 0
 render_tag rb 16

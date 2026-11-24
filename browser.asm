@@ -89,6 +89,12 @@ url_key:
  mov byte [url_editing],0
  jmp home
 url_draw:
+ cmp byte [diagnostic_mode],1
+ je .keep_diag
+ push esi
+ call browser_chrome
+ pop esi
+.keep_diag:
  mov edi,0b8000h+160*4
  mov ecx,80*20-80
  mov ax,1f20h

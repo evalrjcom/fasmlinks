@@ -35,9 +35,8 @@ start:
  ; NEW: start DHCP automatically after NIC initialization.
  call dhcp_clock_init
  call dhcp_discover
- mov esi,footer
- mov edi,0xb8000+160*24
- call print
+ call browser_chrome
+ jmp browser_home
 main:
  cmp byte [net_present],1
  jne .keyboard
@@ -54,7 +53,9 @@ main:
  jz main
  in al,0x60
  cmp al,58h
- je suite_start
+ je browser_tests
+ cmp al,44h
+ je mode_toggle
  cmp byte [suite_stage],0
  je .normal_keys
  cmp al,1
@@ -72,6 +73,8 @@ main:
  je url_key
  cmp byte [nav_choosing],1
  je nav_link_key
+ cmp byte [diagnostic_mode],0
+ je browser_keys
  cmp al,3dh
  je nav_search_open
  cmp al,3eh
@@ -125,7 +128,7 @@ main:
  cmp al,0x19
  je http_prev
  cmp al,0x14
- je tx_test
+ je tls_info
  cmp al,0x13
  je rx_test
  cmp al,0x1e
@@ -179,6 +182,8 @@ tls_boot_fail db 'TEXTOS TLS SELFTEST FAIL',10,0
 links_menu_text db 'File   View   Link   Navigate   Setup   Help',10,10,'F2 Open URL   9 Text view   7 Raw response',10,'F1 HTTP status   F3 Search   F4 Back   F5 Reload',10,'4 DHCP   5 TCP   6 ARP   G DNS',10,'F11 Links   F12 Run all tests   F10 TLS status',0
 tls_info_text db 'HTTPS browser: certificate validation required',10,10,'BearSSL offline ClientHello test (expected 544C5333): 0x',0
 home:
+ cmp byte [diagnostic_mode],0
+ je browser_home
  mov esi,home_text
  jmp show
 sites:
@@ -891,7 +896,7 @@ print:
  jmp .next
 .done:
  ret
-header db 'FASM TEXTOS 0.9.2 |  32-bit protected mode',0
+header db 'FASM TEXTOS 0.9.3 |  32-bit protected mode',0
 menu db '1 Home 2 Sites 3 About 4 DHCP 5 TCP 6 ARP 7 Raw 8 DNS 9 Text',0
 footer db 'F2 URL F3 Search F4 Back F5 Reload F11 Links F12 Tests F1 Status 9 Text',0
 http_empty_msg db 10,'No HTTP response captured. Press C, then 5 for status and 7 to refresh.',0
@@ -963,7 +968,7 @@ tx_text db 'Diagnostic Ethernet frame queued for transmission.',0
 rx_text db 'Receive ring polled. Counters are internal (no HTTP yet).',0
 home_text db 'HOME  |  DuckDuckGo search',10,10,'https://lite.duckduckgo.com/lite/',10,10,'Search is not connected yet.',0
 sites_text db 'TEXT-FRIENDLY WEBSITES',10,10,'https://lite.duckduckgo.com/lite/',10,'https://www.wikipedia.org/',10,'https://www.gutenberg.org/',10,'https://text.npr.org/',10,'https://info.cern.ch/',10,'https://example.com/',0
-about_text db 'FASM TextOS 0.9.2 - RX validation and DHCP trace',10,10,'Experimental DNS A lookup and HTTP; no TLS yet.',0
+about_text db 'FASM TextOS 0.9.3 - RX validation and DHCP trace',10,10,'Experimental DNS A lookup and HTTP; no TLS yet.',0
 
 include 'net.asm'
 include 'ip.asm'
@@ -974,4 +979,5 @@ include 'suite.asm'
 include 'dhcp.asm'
 include 'browser.asm'
 include 'navigation.asm'
+include 'browser_ui.asm'
 include 'dns.asm'

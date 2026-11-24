@@ -130,3 +130,7 @@ F12 automatically runs offline BearSSL, DHCP, ARP, HTTP stream, DNS, TCP 443, au
 ## 0.9.2 browser candidate
 
 F2 HTTP(S) URL editor, F3 DuckDuckGo Lite GET query (bounded alphanumeric search), F4 previous URL, F5 reload, F11 numbered links (first nine supported absolute or root-relative hrefs), F1 HTTP status, F12 all tests. Automatic render when connection terminates. Existing TLS validation retained. No general HTML form submission, relative directory resolution, automatic redirects, full history stack, mouse, HTTP completeness verification or guaranteed DuckDuckGo connectivity yet. 72-byte URL ceiling. Network diagnostics remain available.
+
+## 0.9.3
+
+Browser mode is the default, with separate F10 diagnostics mode and F12 automatic tests. Browser chrome hides network counters and legacy diagnostic shortcuts. F2 URL, F3 search, F4 back, F5 reload, F11 link selector, H home, F1 help; arrows/page keys scroll. Renderer collapses nbsp and suppresses select-option lists, colors recognized link text, and clears stale test footer. F10 toggles back after tests finish. General forms, mouse support, complete Links compatibility, automatic redirects and longer URL support remain outstanding. Runtime verification pending.
