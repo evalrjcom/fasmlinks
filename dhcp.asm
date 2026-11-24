@@ -481,6 +481,9 @@ dhcp_tick:
  mov [dhcp_clock_last],bl
  test al,al
  jz .done
+ push eax
+ call suite_tick
+ pop eax
  cmp byte [dhcp_state],3
  jne .acquiring
  ; FIX: expire finite leases instead of keeping stale IP indefinitely.

@@ -43,6 +43,7 @@ tls_url_connect:
  mov [tls_request_len],eax
  jmp tls_connect
 tls_connect:
+ mov byte [tls_authenticated],0
  mov dword [tls_engine_state],0
  mov dword [tls_record_tx],0
  mov dword [tls_record_rx],0
@@ -93,8 +94,6 @@ tls_poll:
  je .reset
  cmp byte [tcp_state],3
  jne .aborted
- cmp dword [stream_rx_used],0
- je .aborted
 .state:
  mov eax,2
  xor edx,edx
@@ -105,7 +104,16 @@ tls_poll:
  test eax,2
  jnz .record_state
  test eax,24
+ jz .no_application
+ mov byte [tls_authenticated],1
+ test eax,16
  jnz .application
+ mov edx,[tls_request_offset]
+ cmp edx,[tls_request_len]
+ jb .application
+ ; Once GET is staged, continue consuming encrypted records even when SENDAPP remains set.
+ jmp .record_state
+.no_application:
  cmp dword [tls_live_status],4
  je .record_state
  mov dword [tls_live_status],2
@@ -133,12 +141,12 @@ tls_poll:
  xor edx,edx
  call tls_call
  test eax,eax
- jz .done
+ jz .receive_idle
  mov edi,[tls_mailbox]
  mov ecx,eax
  call stream_rx_read
  test eax,eax
- jz .done
+ jz .receive_idle
  add [tls_record_rx],eax
  mov edx,eax
  mov eax,6
@@ -151,6 +159,10 @@ tls_poll:
  xor ecx,ecx
  call tcp_send_segment
 .done:
+ ret
+.receive_idle:
+ cmp byte [tcp_state],3
+ je .aborted
  ret
 .application:
  ; BearSSL exposes application spans only after successful authentication.
@@ -260,6 +272,7 @@ tls_url_pending db 0
 tls_request_ptr dd 0
 tls_request_len dd 0
 tls_request_offset dd 0
+tls_authenticated db 0
 stream_tls_probe db 0
 tls_mailbox dd 0,0
 tls_live_status dd 0

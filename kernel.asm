@@ -47,10 +47,26 @@ main:
  call tls_poll
  call port443_poll
 .keyboard:
+ call suite_poll
  in al,0x64
  test al,1
  jz main
  in al,0x60
+ cmp al,58h
+ je suite_start
+ cmp byte [suite_stage],0
+ je .normal_keys
+ cmp al,1
+ je suite_cancel
+ cmp byte [suite_stage],9
+ jne main
+ cmp al,08h
+ je .leave_suite
+ cmp al,0ah
+ jne main
+.leave_suite:
+ mov byte [suite_stage],0
+.normal_keys:
  cmp byte [url_editing],1
  je url_key
  cmp al,1
@@ -113,7 +129,7 @@ links_menu:
  jmp show
 tls_info:
  mov edi,0xb8000+160*4
- mov ecx,80*20-80
+ mov ecx,80*20
  mov ax,1f20h
  rep stosw
  mov edi,0xb8000+160*4
@@ -149,7 +165,7 @@ tls_info:
 tls_probe_result dd 0
 tls_boot_pass db 'TEXTOS TLS SELFTEST PASS',10,0
 tls_boot_fail db 'TEXTOS TLS SELFTEST FAIL',10,0
-links_menu_text db 'File   View   Link   Setup   Help',10,10,'F2 Open URL   9 Text view   7 Raw response',10,'F5 HTTP status   PgUp/PgDn Scroll',10,'4 DHCP   5 TCP   6 ARP   G DNS',10,'F10 TLS platform status   Esc Menu',0
+links_menu_text db 'File   View   Link   Setup   Help',10,10,'F2 Open URL   9 Text view   7 Raw response',10,'F5 HTTP status   PgUp/PgDn Scroll',10,'4 DHCP   5 TCP   6 ARP   G DNS',10,'F12 Run all tests   F10 TLS status   Esc Menu',0
 tls_info_text db 'HTTPS browser: certificate validation required',10,10,'BearSSL offline ClientHello test (expected 544C5333): 0x',0
 home:
  mov esi,home_text
@@ -202,7 +218,7 @@ network:
  jmp diagnostics
 diagnostics:
  mov edi,0xb8000+160*4
- mov ecx,80*20-80 ; FIX: clear through last body row, preserve footer
+ mov ecx,80*20 ; FIX: clear through last body row, preserve footer
  mov ax,0x1f20
  rep stosw
  mov edi,0xb8000+160*4
@@ -287,7 +303,7 @@ diagnostics:
 network_detail:
  ; NEW: independent status page fits within the 80x25 screen.
  mov edi,0xb8000+160*4
- mov ecx,80*20-80
+ mov ecx,80*20
  mov ax,0x1f20
  rep stosw
  mov edi,0xb8000+160*4
@@ -365,7 +381,7 @@ network_detail:
  jmp main
 arp_detail:
  mov edi,0xb8000+160*4
- mov ecx,80*20-80
+ mov ecx,80*20
  mov ax,0x1f20
  rep stosw
  mov edi,0xb8000+160*4
@@ -461,7 +477,7 @@ print_mac:
 http_view:
  ; Display bounded, sanitized raw response; never execute received bytes.
  mov edi,0xb8000+160*4
- mov ecx,80*20-80
+ mov ecx,80*20
  mov ax,1f20h
  rep stosw
  mov edi,0xb8000+160*4
@@ -539,7 +555,7 @@ dns_open:
  jmp dns_detail
 dns_detail:
  mov edi,0xb8000+160*4
- mov ecx,80*20-80
+ mov ecx,80*20
  mov ax,1f20h
  rep stosw
  mov edi,0xb8000+160*4
@@ -617,7 +633,7 @@ dns_detail:
 
 http_summary:
  mov edi,0xb8000+160*4
- mov ecx,80*20-80
+ mov ecx,80*20
  mov ax,1f20h
  rep stosw
  mov edi,0xb8000+160*4
@@ -831,7 +847,7 @@ about:
  mov esi,about_text
 show:
  mov edi,0xb8000+160*4
- mov ecx,80*20-80 ; FIX: clear through last body row, preserve footer
+ mov ecx,80*20 ; FIX: clear through last body row, preserve footer
  mov ax,0x1f20
  rep stosw
  mov edi,0xb8000+160*4
@@ -864,9 +880,9 @@ print:
  jmp .next
 .done:
  ret
-header db 'FASM TEXTOS 0.9.0 |  32-bit protected mode',0
+header db 'FASM TEXTOS 0.9.1 |  32-bit protected mode',0
 menu db '1 Home 2 Sites 3 About 4 DHCP 5 TCP 6 ARP 7 Raw 8 DNS 9 Text',0
-footer db 'F2 URL | F6 HTTP | F7 TLS | F8 TCP443 | F9 TCP info | F10 TLS info | C Test',0
+footer db 'F12 ALL TESTS | F2 URL | F6 HTTP | F7 TLS | F9 TCP | F10 TLS | 7 Raw',0
 http_empty_msg db 10,'No HTTP response captured. Press C, then 5 for status and 7 to refresh.',0
 http_title db 'HTTP raw response (7 refresh, N next, P first)',0
 arp_detail_title db 'Gateway ARP diagnostics (6 refresh, A retry)',0
@@ -936,13 +952,14 @@ tx_text db 'Diagnostic Ethernet frame queued for transmission.',0
 rx_text db 'Receive ring polled. Counters are internal (no HTTP yet).',0
 home_text db 'HOME  |  DuckDuckGo search',10,10,'https://lite.duckduckgo.com/lite/',10,10,'Search is not connected yet.',0
 sites_text db 'TEXT-FRIENDLY WEBSITES',10,10,'https://lite.duckduckgo.com/lite/',10,'https://www.wikipedia.org/',10,'https://www.gutenberg.org/',10,'https://text.npr.org/',10,'https://info.cern.ch/',10,'https://example.com/',0
-about_text db 'FASM TextOS 0.9.0 - RX validation and DHCP trace',10,10,'Experimental DNS A lookup and HTTP; no TLS yet.',0
+about_text db 'FASM TextOS 0.9.1 - RX validation and DHCP trace',10,10,'Experimental DNS A lookup and HTTP; no TLS yet.',0
 
 include 'net.asm'
 include 'ip.asm'
 include 'stream.asm'
 include 'tls.asm'
 include 'probe.asm'
+include 'suite.asm'
 include 'dhcp.asm'
 include 'browser.asm'
 include 'dns.asm'
