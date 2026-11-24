@@ -54,3 +54,7 @@ User verified a real Cloudflare HTTP 301 response in 0.7.0. This version retains
 ## 0.7.2
 
 DNS UDP checksum generation and verification, bounded retries, fallback to 1.1.1.1 after two DHCP resolver attempts, and detailed rejection counters. Press 8 to start and G to refresh without restarting. Direct first A answer only; CNAME and arbitrary URLs still pending. Runtime verification pending.
+
+### 0.7.2 loader capacity fix
+
+The kernel exceeds the previous 32-sector limit. The bootloader, build script and image tests now share `kernel_layout.inc`: 128 sectors (64 KiB) at physical 0x10000 through 0x1FFFF, below the HTTP buffer at 0x20000. Single-sector CHS reads avoid track crossing; the final offset is 0xFE00. Runtime boot testing remains required.

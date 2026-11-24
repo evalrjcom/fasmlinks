@@ -1,6 +1,7 @@
 format binary
 use16
 org 0x7c00
+include 'kernel_layout.inc'
 start:
  cli
  cld ; FIX: BIOS does not guarantee forward string operations
@@ -13,7 +14,7 @@ start:
  mov ax,0x1000
  mov es,ax
  xor bx,bx
- ; Read 32 sectors individually using floppy CHS geometry (18 sectors/track).
+ ; Read KERNEL_SECTORS sectors individually using floppy CHS geometry (18 sectors/track).
  mov word [sector_index],1
 .read_sector:
  mov ax,[sector_index]
@@ -37,7 +38,7 @@ start:
  int 0x13
  jc error
  inc word [sector_index]
- cmp word [sector_index],33
+ cmp word [sector_index],KERNEL_SECTORS+1
  jb .read_sector
  lgdt [gdtr]
  mov eax,cr0
