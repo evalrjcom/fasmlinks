@@ -55,11 +55,13 @@ start:
  mov ch,al
  mov dh,dl
  mov dl,[drive]
- mov ax,4000h
+ ; Each sector gets its own segment, avoiding 64 KiB offset wrap.
+ mov ax,[sector_index]
+ sub ax,KERNEL_SECTORS+1
+ shl ax,5
+ add ax,4000h
  mov es,ax
- mov bx,[sector_index]
- sub bx,KERNEL_SECTORS+1
- shl bx,9
+ xor bx,bx
  mov ax,0201h
  int 13h
  jc error

@@ -8,5 +8,5 @@ SECTIONS {
  .bss : { *(.bss*) *(COMMON) }
  /DISCARD/ : { *(.comment) *(.note*) *(.eh_frame*) }
  ASSERT(tls_platform_probe == 0x40000, "ABI entry mismatch")
- ASSERT(. <= 0x50000, "auxiliary region overflow")
+ ASSERT(. <= 0x80000, "auxiliary region overflow")
 }

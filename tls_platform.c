@@ -1,5 +1,12 @@
 /* BearSSL 0.6 known-answer tests. No TLS connection or entropy claim. */
 #include "bearssl.h"
+/* Offline-only TLS context. No trust anchors or network transport yet.
+ * These contexts and the deterministic test seed never service live traffic.
+ * A real client must use independent secure entropy and trusted roots.
+ */
+static br_ssl_client_context test_client;
+static br_x509_minimal_context test_x509;
+static unsigned char test_buffer[BR_SSL_BUFSIZE_BIDI];
 static int equal(const unsigned char *a,const unsigned char *b,unsigned n){
  unsigned diff=0; for(unsigned i=0;i<n;i++)diff|=a[i]^b[i]; return diff==0;
 }
@@ -18,9 +25,24 @@ unsigned int tls_platform_probe(void){
  br_hmac_init(&hc,&kc,32);
  br_hmac_update(&hc,"Hi There",8);br_hmac_out(&hc,out);
  if(!equal(out,hmac_expected,32))return 0xBAD00002u;
- return 0x544c5332u;
+ /* Exercise actual TLS engine initialization and ClientHello record creation.
+  * Fixed entropy is strictly a local test fixture, not a usable TLS session.
+  */
+ static const unsigned char fixture[32]={1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32};
+ size_t len=0;
+ unsigned char *record;
+ br_ssl_client_init_full(&test_client,&test_x509,0,0);
+ br_ssl_engine_set_versions(&test_client.eng,BR_TLS12,BR_TLS12);
+ br_ssl_engine_set_buffer(&test_client.eng,test_buffer,sizeof test_buffer,1);
+ br_ssl_engine_inject_entropy(&test_client.eng,fixture,sizeof fixture);
+ if(!br_ssl_client_reset(&test_client,"example.com",0))return 0xBAD00003u;
+ if(!(br_ssl_engine_current_state(&test_client.eng)&BR_SSL_SENDREC))return 0xBAD00004u;
+ record=br_ssl_engine_sendrec_buf(&test_client.eng,&len);
+ if(!record||len<9||record[0]!=22||record[5]!=1)return 0xBAD00005u;
+ /* Never acknowledge/send this record; no live session is exposed. */
+ return 0x544c5333u;
 }
 #ifdef HOST_TEST
 #include <stdio.h>
-int main(void){unsigned r=tls_platform_probe();printf("BearSSL SHA-256/HMAC self-test: %08X\n",r);return r!=0x544c5332u;}
+int main(void){unsigned r=tls_platform_probe();printf("BearSSL SHA-256/HMAC/ClientHello self-test: %08X\n",r);return r!=0x544c5333u;}
 #endif

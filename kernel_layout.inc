@@ -2,5 +2,5 @@
 ; HTTP scratch RAM begins at 20000h; do not raise without relocating it.
 KERNEL_SECTORS = 128
 
-; Auxiliary C payload at 40000h..4FFFFh.
-AUX_SECTORS = 128
+; Auxiliary C payload at 40000h..7FFFFh.
+AUX_SECTORS = 512

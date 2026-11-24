@@ -13,28 +13,26 @@ size=$(wc -c < kernel.bin)
 # Fetch the pinned upstream release and verify its archive before compiling.
 sh fetch_bearssl.sh
 bear=vendor/bearssl-0.6
-flags='-m32 -march=i686 -Os -ffreestanding -fno-builtin -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables -ffunction-sections -fdata-sections'
+# Explicit freestanding configuration: no glibc fortification, OS RNG or CPU RNG.
+flags='-m32 -march=i686 -Os -ffreestanding -fno-builtin -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables -ffunction-sections -fdata-sections -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -DBR_USE_URANDOM=0 -DBR_USE_GETENTROPY=0 -DBR_USE_WIN32_RAND=0 -DBR_USE_RDRAND=0 -DBR_USE_UNIX_TIME=0 -DBR_USE_WIN32_TIME=0'
+rm -rf build/bearssl
 mkdir -p build/bearssl
-# Compile actual upstream SHA-256 and HMAC code, plus their common codec helpers.
-# No OS entropy, socket or filesystem code is linked into the guest.
-for src in "$bear"/src/hash/*.c "$bear"/src/mac/*.c; do
-  # Some codec functions are inline in upstream; only compile existing files.
-  [ -f "$src" ] || continue
-  cc $flags -I"$bear/inc" -I"$bear/src" -c "$src" -o "build/bearssl/$(basename "$src" .c).o"
+# Compile upstream sources into an archive; only reachable functions enter aux.elf.
+for src in "$bear"/src/*/*.c; do
+  obj="build/bearssl/$(basename "$(dirname "$src")")_$(basename "$src" .c).o"
+  cc $flags -I"$bear/inc" -I"$bear/src" -c "$src" -o "$obj"
 done
-# Include the full codec directory to cover upstream range helpers.
-for src in "$bear"/src/codec/*.c; do
-  cc $flags -I"$bear/inc" -I"$bear/src" -c "$src" -o "build/bearssl/$(basename "$src" .c).o"
-done
+ar rcs build/bearssl/libbearssl.a build/bearssl/*.o
 cc $flags -I"$bear/inc" -c tls_platform.c -o tls_platform.o
 cc $flags -c runtime.c -o runtime.o
-ld -m elf_i386 -T aux.ld --gc-sections --no-undefined -o aux.elf tls_platform.o runtime.o build/bearssl/*.o
-# Exercise the exact freestanding self-test as a host executable too.
-cc -O2 -I"$bear/inc" -I"$bear/src" -DHOST_TEST tls_platform.c "$bear"/src/hash/*.c "$bear"/src/mac/*.c "$bear"/src/codec/*.c -o build/bearssl-selftest
+# Compiler integer helpers are freestanding machine code, not libc.
+cc -m32 -nostdlib -static -no-pie -Wl,-T,aux.ld,--gc-sections,--no-undefined -o aux.elf tls_platform.o runtime.o build/bearssl/libbearssl.a -lgcc
+# Test the same code in a 32-bit host process, with OS entropy disabled in BearSSL.
+cc -m32 -O2 -I"$bear/inc" -DHOST_TEST tls_platform.c build/bearssl/libbearssl.a -o build/bearssl-selftest
 ./build/bearssl-selftest
 objcopy -O binary aux.elf aux.bin
 aux_sectors=$(awk '$1 == "AUX_SECTORS" && $2 == "=" {print $3}' kernel_layout.inc)
-[ "$aux_sectors" -eq 128 ] || { echo 'Unexpected auxiliary layout' >&2; exit 1; }
+[ "$aux_sectors" -eq 512 ] || { echo 'Unexpected auxiliary layout' >&2; exit 1; }
 aux_size=$(wc -c < aux.bin)
 [ "$aux_size" -gt 0 ] && [ "$aux_size" -le "$((aux_sectors * 512))" ] || { echo 'Auxiliary payload exceeds loader capacity' >&2; exit 1; }
 dd if=/dev/zero of=textos.img bs=1024 count=1440 status=none
