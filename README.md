@@ -126,3 +126,7 @@ F2 accepts HTTPS hostname URLs, DNS connects to port 443, F7 uses the same HTTPS
 ## 0.9.1
 
 F12 automatically runs offline BearSSL, DHCP, ARP, HTTP stream, DNS, TCP 443, authenticated TLS and HTTPS response-prefix tests. Results remain on one live-updating screen; Esc cancels, 7/9 inspect last captured response after completion. Each network stage has a bounded RTC-based timeout. HTTPS PASS means a decrypted HTTP prefix, not completeness. Fix TLS SENDAPP starvation after request staging, allow processing buffered TLS state after FIN, and clear stale VGA rows. No certificate bypass. Live HTTPS remains unverified until guest testing.
+
+## 0.9.2 browser candidate
+
+F2 HTTP(S) URL editor, F3 DuckDuckGo Lite GET query (bounded alphanumeric search), F4 previous URL, F5 reload, F11 numbered links (first nine supported absolute or root-relative hrefs), F1 HTTP status, F12 all tests. Automatic render when connection terminates. Existing TLS validation retained. No general HTML form submission, relative directory resolution, automatic redirects, full history stack, mouse, HTTP completeness verification or guaranteed DuckDuckGo connectivity yet. 72-byte URL ceiling. Network diagnostics remain available.

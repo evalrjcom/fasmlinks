@@ -2,6 +2,7 @@
 ; Syntax: IPv4/path, optional http:// prefix. Port 80 only.
 ; DNS and HTTPS are not silently substituted.
 url_open:
+ mov byte [nav_search],0
  mov byte [url_editing],1
  mov byte [url_shift],0
  mov byte [url_len],0
@@ -22,21 +23,39 @@ url_key:
  cmp al,1
  je .escape
  cmp al,1ch
- je url_submit
+ jne .not_enter
+ cmp byte [nav_search],1
+ je nav_search_submit
+ jmp url_submit
+.not_enter:
  cmp al,0eh
  je .back
  cmp al,58
  jae main
+ mov [nav_last_scan],al
  movzx eax,al
  cmp byte [url_shift],1
  jne .normal
- cmp al,27h
- jne .normal
- mov al,':'
- jmp .mapped
+ mov al,[nav_shift_keys+eax]
+ test al,al
+ jnz .mapped
+ movzx eax,byte [nav_last_scan]
+ jmp .normal
 .normal:
  mov al,[url_keys+eax]
+ cmp byte [nav_search],1
+ jne .mapped
+ cmp byte [nav_last_scan],39h
+ jne .mapped
+ mov al,' '
 .mapped:
+ cmp byte [nav_search],1
+ je .safe_char
+ cmp al,33
+ jb main
+ cmp al,'#'
+ je main
+.safe_char:
  test al,al
  jz main
  movzx ecx,byte [url_len]
@@ -55,6 +74,10 @@ url_key:
  mov byte [url_input+ecx],0
 .redraw:
  mov esi,url_prompt
+ cmp byte [nav_search],1
+ jne .draw_prompt
+ mov esi,nav_search_prompt
+.draw_prompt:
  jmp url_draw
 .shift_on:
  mov byte [url_shift],1
@@ -226,6 +249,7 @@ url_submit:
  mov eax,edi
  sub eax,url_request
  mov [url_request_length],eax
+ call nav_commit
  mov esi,[url_host_start]
  mov ecx,[url_host_end]
  sub ecx,esi
@@ -240,8 +264,9 @@ url_submit:
  mov byte [dns_custom],1
  mov byte [url_editing],0
  call dns_start_custom
- jmp dns_detail
+ jmp nav_loading
 .numeric:
+ mov eax,[url_request_length]
  mov [http_request_len],eax
  mov dword [http_request_ptr],url_request
  mov eax,dword [url_ip]
@@ -249,7 +274,7 @@ url_submit:
  mov word [tcp_remote_port],5000h
  mov byte [url_editing],0
  call tcp_syn_probe
- jmp network_detail
+ jmp nav_loading
 .bad:
  mov esi,url_bad
  jmp url_draw
@@ -343,7 +368,7 @@ url_get db 'GET '
 url_get_end:
 url_version db ' HTTP/1.0',13,10,'Host: '
 url_version_end:
-url_tail db 13,10,'Connection: close',13,10,13,10
+url_tail db 13,10,'Accept-Encoding: identity',13,10,'Connection: close',13,10,13,10
 url_tail_end:
 ; Set-1 unshifted scan code table. Only safe ASCII URL characters.
 url_keys:

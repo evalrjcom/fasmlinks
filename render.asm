@@ -13,12 +13,16 @@ text_page_down:
  jmp text_view
 text_view:
  mov edi,0xb8000+160*4
- mov ecx,80*20-80
+ mov ecx,80*20
  mov ax,1f20h
  rep stosw
  mov edi,0xb8000+160*4
- mov esi,text_title
+ mov esi,nav_address_label
  call print
+ mov esi,nav_current
+ call print
+ mov byte [nav_view],1
+ mov dword [nav_link_count],0
  mov byte [render_more],0 ; FIX: stale scroll state after empty/partial response.
  mov esi,HTTP_BUFFER
  mov ecx,[http_stored]
@@ -217,6 +221,7 @@ text_view:
  jbe .valid_delimiter
  mov byte [render_tag],0
 .valid_delimiter:
+ mov [nav_attr_start],esi
  ; Skip attributes, respecting single/double quotes.
  xor edx,edx
 .attr:
@@ -269,6 +274,12 @@ text_view:
 .visible:
  cmp byte [render_hidden],0
  jne .loop
+ cmp word [render_tag],0061h
+ jne .not_anchor
+ cmp byte [render_closing],0
+ jne .not_anchor
+ call nav_capture_link
+.not_anchor:
  ; Exact block tag names, not prefixes.
  cmp word [render_tag],0070h
  je .block
