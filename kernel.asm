@@ -29,6 +29,7 @@ start:
  out 0e9h,al
  jmp .tls_marker
 .tls_marker_done:
+ call stream_selftest
  call net_probe
  ; NEW: start DHCP automatically after NIC initialization.
  call dhcp_clock_init
@@ -41,6 +42,7 @@ main:
  jne .keyboard
  call ne_poll
  call dhcp_tick ; NEW: nonblocking RTC retry scheduler
+ call stream_probe_poll
 .keyboard:
  in al,0x64
  test al,1
@@ -56,6 +58,8 @@ main:
  je tls_info
  cmp al,0x3f
  je http_summary
+ cmp al,0x40
+ je stream_probe_open
  cmp al,0x02
  je home
  cmp al,0x03
@@ -826,9 +830,9 @@ print:
  jmp .next
 .done:
  ret
-header db 'FASM TEXTOS 0.8.1 |  32-bit protected mode',0
+header db 'FASM TEXTOS 0.8.2 |  32-bit protected mode',0
 menu db '1 Home 2 Sites 3 About 4 DHCP 5 TCP 6 ARP 7 Raw 8 DNS 9 Text',0
-footer db 'F2 URL | F5 HTTP status | C Test | 8 DNS | 7 Raw | 9 Text | N/P Pages',0
+footer db 'F2 URL | F5 Status | F6 Stream | C Test | 7 Raw | 8 DNS | 9 Text | N/P',0
 http_empty_msg db 10,'No HTTP response captured. Press C, then 5 for status and 7 to refresh.',0
 http_title db 'HTTP raw response (7 refresh, N next, P first)',0
 arp_detail_title db 'Gateway ARP diagnostics (6 refresh, A retry)',0
@@ -898,10 +902,11 @@ tx_text db 'Diagnostic Ethernet frame queued for transmission.',0
 rx_text db 'Receive ring polled. Counters are internal (no HTTP yet).',0
 home_text db 'HOME  |  DuckDuckGo search',10,10,'https://lite.duckduckgo.com/lite/',10,10,'Search is not connected yet.',0
 sites_text db 'TEXT-FRIENDLY WEBSITES',10,10,'https://lite.duckduckgo.com/lite/',10,'https://www.wikipedia.org/',10,'https://www.gutenberg.org/',10,'https://text.npr.org/',10,'https://info.cern.ch/',10,'https://example.com/',0
-about_text db 'FASM TextOS 0.8.1 - RX validation and DHCP trace',10,10,'Experimental DNS A lookup and HTTP; no TLS yet.',0
+about_text db 'FASM TextOS 0.8.2 - RX validation and DHCP trace',10,10,'Experimental DNS A lookup and HTTP; no TLS yet.',0
 
 include 'net.asm'
 include 'ip.asm'
+include 'stream.asm'
 include 'dhcp.asm'
 include 'browser.asm'
 include 'dns.asm'

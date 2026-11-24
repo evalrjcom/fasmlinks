@@ -37,6 +37,8 @@ dhcp_discover:
  mov byte [dns_state],0
  mov byte [gateway_known],0
  mov byte [tcp_state],0
+ mov byte [stream_mode],0
+ call stream_reset
  mov byte [dhcp_message_type],1
  inc dword [dhcp_discover_tx]
  call dhcp_send

@@ -102,3 +102,7 @@ Fix the missing freestanding strlen symbol reported by CI, link the host self-te
 ### 0.8.1 audit hardening
 
 Fix DNS question case handling and gateway-only routing checks, bound TCP request retransmission to unacknowledged suffixes, reject impossible ACKs and unexpected SYN, verify nonzero DHCP UDP checksum and expire finite leases, repair raw HTML closing-tag boundaries, preserve exact Location header cursor, bound VGA writes and preserve footer during screen clears. Full TCP stream semantics, DHCP renewal, full HTML, TLS transport, secure RNG, trust anchors and verified HTTPS remain pending. See AUDIT.md.
+
+## 0.8.2
+
+New `stream.asm` implements a separate bounded TCP byte-stream adapter: 8 KiB receive FIFO, 536-byte immutable send slot, stop-and-wait transmission, peer-window limitation, partial reads and backpressure. F6 tests the adapter with the existing Cloudflare HTTP request, while C and F2 retain legacy behavior. Offline QEMU boot now requires both TLS and assembly FIFO self-tests. No out-of-order queue, general congestion control, zero-window persist probes, graceful bidirectional FIN close or live BearSSL record integration yet. Runtime network testing pending.

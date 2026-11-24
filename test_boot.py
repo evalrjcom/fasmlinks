@@ -18,9 +18,9 @@ with tempfile.TemporaryDirectory() as tmp:
             deadline = time.monotonic() + 120
             while time.monotonic() < deadline:
                 data = log.read_bytes() if log.exists() else b""
-                if b"TEXTOS TLS SELFTEST FAIL" in data:
-                    raise SystemExit("FAIL: guest BearSSL self-test")
-                if b"TEXTOS TLS SELFTEST PASS" in data:
+                if b"TEXTOS TLS SELFTEST FAIL" in data or b"TEXTOS STREAM SELFTEST FAIL" in data:
+                    raise SystemExit("FAIL: guest BearSSL and stream self-tests")
+                if b"TEXTOS TLS SELFTEST PASS" in data and b"TEXTOS STREAM SELFTEST PASS" in data:
                     print("PASS: real-mode loader, protected-mode kernel and guest BearSSL self-test")
                     break
                 if proc.poll() is not None:

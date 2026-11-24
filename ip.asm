@@ -353,6 +353,9 @@ tcp_receive:
  mov eax,[tcp_seq_num]
  mov [tcp_request_seq],eax
  mov [tcp_snd_una],eax
+ movzx eax,word [net_rx_buffer+48]
+ xchg al,ah
+ mov [stream_peer_window],eax
  mov byte [tcp_data_retries],0
  mov byte [tcp_data_elapsed],0
  mov byte [tcp_state],2
@@ -360,6 +363,8 @@ tcp_receive:
  mov byte [tcp_flags],10h
  xor ecx,ecx
  call tcp_send_segment
+ cmp byte [stream_mode],1
+ je .end ; stream application supplies its own data
  mov byte [tcp_flags],18h
  mov esi,[http_request_ptr]
  mov ecx,[http_request_len]
@@ -391,12 +396,21 @@ tcp_receive:
  mov byte [tcp_data_elapsed],0
  mov byte [tcp_data_retries],0
 .ack_unchanged:
+ ; Only update the stream's advertised peer window from a current ACK.
+ cmp eax,[tcp_snd_una]
+ jne .window_done
+ movzx edx,word [net_rx_buffer+48]
+ xchg dl,dh
+ mov [stream_peer_window],edx
+.window_done:
  mov byte [tcp_elapsed],0
  mov ecx,[tcp_rx_length]
  sub ecx,[tcp_rx_header]
  mov ebx,ecx
  test ecx,ecx
  jz .fin
+ cmp byte [stream_mode],1
+ je .stream_payload
  cmp word [tcp_remote_port],3500h
  je .dns_payload
  ; Bounded raw HTTP capture at dedicated scratch RAM, not in boot image.
@@ -413,6 +427,14 @@ tcp_receive:
  add edi,HTTP_BUFFER
  rep movsb
  add [http_bytes],ebx
+ add [tcp_ack_num],ebx
+ jmp .fin
+.stream_payload:
+ ; All-or-nothing admission: never acknowledge discarded stream bytes.
+ mov esi,net_rx_buffer+34
+ add esi,[tcp_rx_header]
+ call stream_rx_push
+ jc .send_ack
  add [tcp_ack_num],ebx
  jmp .fin
 .dns_payload:
@@ -435,6 +457,9 @@ tcp_receive:
  jz .data_ack
  inc dword [tcp_ack_num]
  mov byte [tcp_state],3
+ cmp byte [stream_mode],1
+ jne .data_ack
+ mov byte [stream_eof],1
 .data_ack:
  test ebx,ebx
  jnz .send_ack
@@ -444,6 +469,8 @@ tcp_receive:
  mov byte [tcp_flags],10h
  xor ecx,ecx
  call tcp_send_segment
+ cmp byte [stream_mode],1
+ je .end
  cmp word [tcp_remote_port],3500h
  jne .end
  call dns_tcp_check
@@ -604,6 +631,16 @@ arp_gateway_rejected dd 0
 arp_learn_opcode dd 0
 
 tcp_syn_probe:
+ ; Legacy entry never inherits stream mode from a previous connection.
+ cmp byte [tcp_state],1
+ je .legacy_busy
+ cmp byte [tcp_state],2
+ je .legacy_busy
+ mov byte [stream_mode],0
+ jmp tcp_connect_common
+.legacy_busy:
+ ret
+tcp_connect_common:
  cmp byte [gateway_known],1
  jne .end
  cmp byte [dhcp_state],3
@@ -752,6 +789,13 @@ tcp_send_segment:
  mov al,[tcp_flags]
  mov [tx_frame+47],al
  mov word [tx_frame+48],0x0040
+ cmp byte [stream_mode],1
+ jne .window_ready
+ mov eax,STREAM_CAPACITY
+ sub eax,[stream_rx_used]
+ xchg al,ah
+ mov word [tx_frame+48],ax
+.window_ready:
  ; optional payload pointer was saved in PUSHAD, ESI at ESP+4
  movzx ecx,word [tcp_payload_len]
  test ecx,ecx
