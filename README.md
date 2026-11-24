@@ -1,4 +1,4 @@
-# FASM Links / TextOS 0.7.8 (experimental)
+# FASM Links / TextOS 0.7.9 (experimental)
 
 This is a 32-bit FASM bootable floppy prototype for the ne2k interface emulated by copy.sh/v86. It has a VGA text console, PCI discovery, NE2000 transmit/receive, ARP, and an incomplete DHCP/IPv4/TCP prototype.
 
@@ -82,3 +82,7 @@ Adds bounded DNS compression decoding and owner-matched CNAME chains within a si
 ## 0.7.8
 
 Separate bounded assembly text renderer suppresses style/script content and comments, honors quoted tag attributes, wraps words, adds block/title breaks, and supports PgUp/PgDn text pagination. Raw HTTP and DNS remain unchanged apart from resetting text pagination when a new HTTP connection starts. Limited ASCII HTML preview, not a standards-complete parser; links, history, automatic redirects, TLS and lease renewal remain pending.
+
+## 0.7.9
+
+Separate 64 KiB freestanding C region at 0x40000; F10 displays ABI probe marker 544C5331. Esc opens a Links-inspired command menu. Existing networking unchanged. BearSSL not linked yet; no TLS handshake, secure entropy or certificate validation. Runtime verification pending.

@@ -23,6 +23,11 @@ assert len(image) == 1440 * 1024, 'unexpected floppy geometry'
 assert image[:512] == boot, 'boot sector not written correctly'
 assert image[512:512 + len(kernel)] == kernel, 'kernel not written at LBA1'
 assert not any(image[512 + len(kernel):512 + sectors * 512]), 'kernel padding must be zero'
-expected_version = b'FASM TEXTOS 0.7.8 |'
+aux = (p / 'aux.bin').read_bytes()
+assert 0 < len(aux) <= 128 * 512, 'auxiliary payload size'
+aux_start = (sectors + 1) * 512
+assert image[aux_start:aux_start + len(aux)] == aux, 'auxiliary payload placement'
+assert not any(image[aux_start + len(aux):aux_start + 128 * 512]), 'auxiliary padding'
+expected_version = b'FASM TEXTOS 0.7.9 |'
 assert expected_version in kernel, f'wrong build version: expected {expected_version!r}'
 print('PASS: boot signature, sizes, image content, padding, kernel version')

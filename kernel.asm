@@ -13,6 +13,10 @@ start:
  mov esi,menu
  mov edi,0xb8000+160*2
  call print
+ ; Execute separately loaded C ABI probe.
+ mov eax,40000h
+ call eax
+ mov [tls_probe_result],eax
  call net_probe
  ; NEW: start DHCP automatically after NIC initialization.
  call dhcp_clock_init
@@ -32,8 +36,12 @@ main:
  in al,0x60
  cmp byte [url_editing],1
  je url_key
+ cmp al,1
+ je links_menu
  cmp al,0x3c
  je url_open
+ cmp al,0x44
+ je tls_info
  cmp al,0x3f
  je http_summary
  cmp al,0x02
@@ -75,6 +83,23 @@ main:
  cmp al,0x20
  je dhcp_test
  jmp main
+links_menu:
+ mov esi,links_menu_text
+ jmp show
+tls_info:
+ mov edi,0xb8000+160*4
+ mov ecx,80*20
+ mov ax,1f20h
+ rep stosw
+ mov edi,0xb8000+160*4
+ mov esi,tls_info_text
+ call print
+ mov eax,[tls_probe_result]
+ call print_hex32
+ jmp main
+tls_probe_result dd 0
+links_menu_text db 'File   View   Link   Setup   Help',10,10,'F2 Open URL   9 Text view   7 Raw response',10,'F5 HTTP status   PgUp/PgDn Scroll',10,'4 DHCP   5 TCP   6 ARP   G DNS',10,'F10 TLS platform status   Esc Menu',0
+tls_info_text db 'TLS platform status (not HTTPS yet)',10,10,'Freestanding C ABI probe (expected 544C5331): 0x',0
 home:
  mov esi,home_text
  jmp show
@@ -799,7 +824,7 @@ print:
  jmp .next
 .done:
  ret
-header db 'FASM TEXTOS 0.7.8 |  32-bit protected mode',0
+header db 'FASM TEXTOS 0.7.9 |  32-bit protected mode',0
 menu db '1 Home 2 Sites 3 About 4 DHCP 5 TCP 6 ARP 7 Raw 8 DNS 9 Text',0
 footer db 'F2 URL | F5 HTTP status | C Test | 8 DNS | 7 Raw | 9 Text | N/P Pages',0
 http_empty_msg db 10,'No HTTP response captured. Press C, then 5 for status and 7 to refresh.',0
@@ -871,7 +896,7 @@ tx_text db 'Diagnostic Ethernet frame queued for transmission.',0
 rx_text db 'Receive ring polled. Counters are internal (no HTTP yet).',0
 home_text db 'HOME  |  DuckDuckGo search',10,10,'https://lite.duckduckgo.com/lite/',10,10,'Search is not connected yet.',0
 sites_text db 'TEXT-FRIENDLY WEBSITES',10,10,'https://lite.duckduckgo.com/lite/',10,'https://www.wikipedia.org/',10,'https://www.gutenberg.org/',10,'https://text.npr.org/',10,'https://info.cern.ch/',10,'https://example.com/',0
-about_text db 'FASM TextOS 0.7.8 - RX validation and DHCP trace',10,10,'Experimental DNS A lookup and HTTP; no TLS yet.',0
+about_text db 'FASM TextOS 0.7.9 - RX validation and DHCP trace',10,10,'Experimental DNS A lookup and HTTP; no TLS yet.',0
 
 include 'net.asm'
 include 'ip.asm'

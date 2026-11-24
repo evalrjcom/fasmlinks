@@ -40,6 +40,32 @@ start:
  inc word [sector_index]
  cmp word [sector_index],KERNEL_SECTORS+1
  jb .read_sector
+ ; Load separate auxiliary payload at 40000h, after kernel on disk.
+ mov word [sector_index],KERNEL_SECTORS+1
+.read_aux:
+ mov ax,[sector_index]
+ xor dx,dx
+ mov cx,18
+ div cx
+ mov cl,dl
+ inc cl
+ xor dx,dx
+ mov bx,2
+ div bx
+ mov ch,al
+ mov dh,dl
+ mov dl,[drive]
+ mov ax,4000h
+ mov es,ax
+ mov bx,[sector_index]
+ sub bx,KERNEL_SECTORS+1
+ shl bx,9
+ mov ax,0201h
+ int 13h
+ jc error
+ inc word [sector_index]
+ cmp word [sector_index],KERNEL_SECTORS+AUX_SECTORS+1
+ jb .read_aux
  lgdt [gdtr]
  mov eax,cr0
  or eax,1
